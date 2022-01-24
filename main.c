@@ -4,7 +4,7 @@ int main(int argc, const char *argv[])
 {
     SDL_Window *window = NULL; 
     SDL_Renderer *renderer = NULL;
-    Mix_Chunk *audio_chunks[2];
+    Mix_Chunk *audio_chunks[5];
 
     if (initSdl(&window, &renderer))
     {
@@ -32,20 +32,53 @@ int main(int argc, const char *argv[])
 
             printf("loading assets ...\n");
 
-            if (initTexture(renderer, &playerTexture, "./assets/warrior-Sheet.png")
-            & initTexture(renderer, &gunTexture, "./assets/tiny_gun_icons/pack.png"))
+            if (initTexture(renderer, &playerTexture, "assets/graphics/warrior-Sheet.png")
+            & initTexture(renderer, &gunTexture, "assets/graphics/tiny_gun_icons/pack.png"))
             {
-                for (int i = 0; i < 2; i++) audio_chunks[i] = NULL;
+                bool audio_ok = true;
 
-                if (!(audio_chunks[0] = Mix_LoadWAV("./assets/low.wav")))
-                    printf("Failed to load sound effect! SDL_mixer Error: %s\n", Mix_GetError());
-                else
+                for (int i = 0; i < 5; i++) 
                 {
-                    printf("assets loaded!\n");
+                    audio_chunks[i] = NULL;
+
+                    switch (i)
+                    {
+                        case S_LOW:
+                            if (!(audio_chunks[i] = Mix_LoadWAV("assets/sound/low.wav")))
+                                audio_ok = false;
+                        break;
+                        case S_MEDIUM:
+                            if (!(audio_chunks[i] = Mix_LoadWAV("assets/sound/medium.wav")))
+                                audio_ok = false;
+                        break;
+                        case S_HIGH:
+                            if (!(audio_chunks[i] = Mix_LoadWAV("assets/sound/high.wav")))
+                                audio_ok = false;
+                        break;
+                        case S_SCRATCH:
+                            if (!(audio_chunks[i] = Mix_LoadWAV("assets/sound/scratch.wav")))
+                                audio_ok = false;
+                        break;
+                        case S_BEAT:
+                            if (!(audio_chunks[i] = Mix_LoadWAV("assets/sound/beat.wav")))
+                                audio_ok = false;
+                        break;
+                    }
+
+                    if (!audio_ok)
+                    {
+                        printf("Failed to load sound effect! SDL_mixer Error: %s\n", Mix_GetError());
+                        break;
+                    }
+                }
+
+                if (audio_ok)
+                {
+                     printf("assets loaded!\n");
 
                     SDL_Event e;
                     P_TEST play_test;
-                    P player;
+                    P players[2];
                     SDL_Rect p_clips[12];
                     int timer, delta;
 
@@ -70,19 +103,13 @@ int main(int argc, const char *argv[])
                         }
                     }
 
+                    initPlayerClips(p_clips);
+
                     play_test.style = P_TOPDOWN_SHOOT;
                     play_test.GUN_speed = 16;
                     play_test.GUN_delay = 20;
-                    play_test.GUN_angle = 4;
-                    play_test.GUN_deg = 0;
-                    play_test.GUN_radx = 0;
-                    play_test.GUN_rady = 0;
-                    play_test.channel_volume = 64;
-                    play_test.JOY_deg = 0;
-                    play_test.JOY_use = false;
-                    play_test.JOY_vel = 0;
-                    play_test.JOY_xdir = 0;
-                    play_test.JOY_ydir = 0;
+                    
+                    play_test.channel_volume = 32;
 
                     play_test.PUCK_freeze = false;
                     play_test.PUCK_freeze_timer = 0;
@@ -107,30 +134,15 @@ int main(int argc, const char *argv[])
                         play_test.bullet_hits.a[i].y = 0;
                     }
 
-                    play_test.crosshair.r.w = 4;
-                    play_test.crosshair.r.h = 4;
-                    play_test.crosshair.show = false;
-
-                    play_test.club_r.w = 16;
-                    play_test.club_r.h = 16;
-
                     play_test.goal_r.w = 48;
                     play_test.goal_r.h = 64;
                     play_test.goal_r.x = 48;
                     play_test.goal_r.y = 224;
 
-                    initPlayerClips(p_clips);
-
-                    player.texture = &playerTexture;
-                    player.t_clips = p_clips;
-                    player.dir = &play_test.input_q[0];
-                    player.gvel = STANDARD_VELOCITY;
-                    player.vel = STANDARD_VELOCITY;
-                    player.shoot = false;
-                    player.sprint = false;
-                    player.sprint_timer = 0;
-                    player.sprint_cdown = false;
-                    player.sprint_cdown_timer = 0;
+                    play_test.sprint_hud_r.w = 0;
+                    play_test.sprint_hud_r.h = 16;
+                    play_test.sprint_hud_r.x = 300;
+                    play_test.sprint_hud_r.y = W_HEIGHT - 26;
 
                     play_test.screen.w = W_WIDTH;
                     play_test.screen.h = W_HEIGHT;
@@ -141,14 +153,6 @@ int main(int argc, const char *argv[])
                     play_test.camera.h = W_HEIGHT;
                     play_test.camera.x = 0;
                     play_test.camera.y = 0;
-
-                    /* testing bullets */
-                    for (int i = 0; i < 10; i++)
-                    {
-                        player.bullets[i].r.w = 4;
-                        player.bullets[i].r.h = 4;
-                        player.bullets[i].shoot = false;
-                    }
 
                     play_test.m_buffer = NULL;
                     play_test.level.map = NULL;
@@ -165,10 +169,20 @@ int main(int argc, const char *argv[])
 
                         printf("map loaded!\n");
 
-                        initPlayer(&player, play_test.level, play_test.m_buffer);
-                        setupPlay(&play_test, &player);
+                        for (int i = 0; i < 2; i++)
+                        {
+                            players[i].texture = &playerTexture;
+                            players[i].t_clips = p_clips;
 
-                        printf("init player and play\nstarting game loop\n");
+                            initPlayer(
+                                &players[i], 
+                                play_test.level, 
+                                play_test.m_buffer);
+                        }
+
+                        setupPlay(&play_test, &players[0]);
+
+                        printf("init player and starting game loop\n");
 
                         // program loop
                         while (!play_test.quit)
@@ -178,9 +192,9 @@ int main(int argc, const char *argv[])
                             SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
                             SDL_RenderClear(renderer);
 
-                            playTopDownShooter(&play_test, e, &player);
-                            updateTopDownShoot(&play_test, &player);
-                            playRender(renderer, font, &play_test, &player);
+                            playTopDownShooter(&play_test, e);
+                            updateTopDownShoot(&play_test, players);
+                            playRender(renderer, font, &play_test, players);
                             
                             SDL_RenderPresent(renderer);
 
@@ -192,13 +206,19 @@ int main(int argc, const char *argv[])
                     else printf("Failed to load map!\n");
 
                     freeBuffers(&play_test);
-                    freePlayer(&player);
+                    freePlayer(players);
                     freePlayTest(&play_test);
                 }
+                else printf("Failed to init sound assets!\n");
             }
-            else printf("Failed to init assets!\n");
+            else printf("Failed to init texture assets!\n");
         }
         else printf("Failed to load font!\n");
+
+        FC_FreeFont(font);
+        font = NULL;
+
+        printf("free font\n");
     }
     else printf("Failed to initialize SDL, %s\n", SDL_GetError());         
 

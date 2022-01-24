@@ -101,15 +101,14 @@ bool checkPlayerPosition(int x, int y, unsigned char map[], int msize)
 
 bool checkGoal(SDL_Rect puck, SDL_Rect goal)
 {
-    if ((puck.x < (goal.x + goal.w)) 
-    && ((puck.x + puck.w) > goal.x) 
-    && (puck.y < (goal.y + goal.h)) 
-    && ((puck.y + puck.h) > goal.y))
-    {
-        return true;
-    }
+    // if one of the sides are outside of the goal, its false
+    if (puck.x < goal.x) return false;
+    if (puck.x + puck.w > goal.x + goal.w) return false;
+    if (puck.y < goal.y) return false;
+    if (puck.y + puck.h > goal.y + goal.h) return false;
 
-    return false;
+    // if all of the sides are inside of the goal, score
+    return true;
 }
 
 void freeTexture(T *text)
@@ -375,12 +374,15 @@ void freeBuffers(P_TEST *pt)
     printf("free collision map\n");
 }
 
-void freePlayer(P *p)
+void freePlayer(P p[])
 {
-    freeTexture(p->texture);
-    p->t_clips = NULL;
+    for (int i = 0; i < 2; i++)
+    {
+        freeTexture(p[i].texture);
+        p[i].t_clips = NULL;
+    }
 
-    printf("free player texture\n");
+    printf("free players\n");
 }
 
 void freePlayTest(P_TEST *ptest)
@@ -444,30 +446,78 @@ void initMap(P_TEST *pt)
     printf("map loaded from buffer\n");
 }
 
-void initPlayer(P *p, L l, unsigned char buffer[])
+void initPlayer(P *p, L level, unsigned char buffer[])
 {
+    p->dir = &p->input_q[0];
+
+    for (int i = 0; i < 4; i++)
+        p->input_q[i] = 0;
+
+    p->AIM_angle = 4;
+    p->AIM_deg = 0;
+    p->AIM_radx = 0;
+    p->AIM_rady = 0;
+    p->AIM_done = false;
+    p->AIM_timer = 0;
+
+    p->crosshair.r.w = 4;
+    p->crosshair.r.h = 4;
+    p->crosshair.show = false;
+
+    p->JOY_use = false;
+    p->JOY_vel = 0;
+    p->JOY_xdir = 0;
+    p->JOY_ydir = 0;
+
+    p->gvel = STANDARD_VELOCITY;
+    p->vel = STANDARD_VELOCITY;
+    p->xvel = 0;
+    p->yvel = 0;
+    p->pvel = 3;
+
+    p->shoot = false;
+    p->sprint = false;
+    p->sprint_cdown = false;
+    p->spawned = true;
+    p->m_hold = false;
+    p->m_move = false;
+
+    p->sprint_timer = 0;
+    p->sprint_cdown_timer = 0;
+
     p->c_index = 0;
     p->facing = 0;
     p->a_index = 0;
 
-    p->shoot = false;
-    p->gun_timer = 0;
+    p->club_r.w = 16;
+    p->club_r.h = 16;
+    p->club_r.x = p->x - 8 + p->AIM_radx;
+    p->club_r.y = p->y - 8 + p->AIM_rady;
+
+    /* testing bullets 
+    for (int i = 0; i < 10; i++)
+    {
+        p->bullets[i].r.w = 4;
+        p->bullets[i].r.h = 4;
+        p->bullets[i].shoot = false;
+    }
+    */
 
     p->clip.w = 32;
     p->clip.h = 32;
     p->clip.x = 0;
     p->clip.y = 0;
 
-    p->r.w = l.t_size;
-    p->r.h = l.t_size;
+    p->r.w = 20;
+    p->r.h = 20;
 
     p->x = buffer[F_SPAWN_X] * buffer[F_SPAWN_X + 1];
-    p->mx = (int)p->x >> l.t_bit_size;
-    p->r.x = p->mx << l.t_bit_size;
+    p->mx = (int)p->x >> level.t_bit_size;
+    p->r.x = p->mx << level.t_bit_size;
 
     p->y = buffer[F_SPAWN_Y] * buffer[F_SPAWN_Y + 1];
-    p->my = (int)p->y >> l.t_bit_size;
-    p->r.y = p->my << l.t_bit_size;
+    p->my = (int)p->y >> level.t_bit_size;
+    p->r.y = p->my << level.t_bit_size;
 }
 
 void initPlayerClips(SDL_Rect clips[])
@@ -527,7 +577,7 @@ void readInputs(SDL_Renderer *r, P_TEST *pt, SDL_Event ev)
     }
 }
 
-void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P *player)
+void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 {
     // background 
     SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
@@ -535,6 +585,13 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P *player)
 
     // tiles
     renderPlayTiles(r, *pt);
+
+    //sprint cooldown
+    if (pt->c_player->sprint_cdown)
+    {
+        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0xff, 0xff);
+        SDL_RenderFillRect(r, &pt->sprint_hud_r);
+    }
     
     SDL_Rect gq = {
         pt->goal_r.x - pt->camera.x, 
@@ -608,40 +665,60 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P *player)
         (pt->GUN_deg > 90 && pt->GUN_deg < 270) ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
     */
 
+    for (int i = 0; i < 2; i++)
+    {
+        if (players[i].spawned)
+        {
+            SDL_Rect cq = {
+                players[i].club_r.x - pt->camera.x, 
+                players[i].club_r.y - pt->camera.y, 
+                players[i].club_r.w, players[i].club_r.h
+            },
+            pq = {
+                players[i].r.x - pt->camera.x, 
+                players[i].r.y - pt->camera.y, 
+                20, 20
+            };
+
+            // club hitbox
+            if (players[i].swing) 
+                SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+            else 
+                SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+
+            if (players[i].pvel == 5) 
+                SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+
+            SDL_RenderFillRect(r, &cq);
+
+            SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+            SDL_RenderFillRect(r, &pq);
+
+            // player
+            renderPlayer(
+                r, 
+                players[i].texture->t,
+                &players[i], 
+                pt->camera.x, 
+                pt->camera.y);
+
+            if (players[i].crosshair.show) 
+            {
+                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+                SDL_RenderFillRect(r, &players[i].crosshair.r);
+            }
+        }
+    }
+
     SDL_Rect pq = {
-                pt->puck.r.x - pt->camera.x, 
-                pt->puck.r.y - pt->camera.y, 
-                pt->puck.r.w, pt->puck.r.h},
-             cq = {
-                pt->club_r.x - pt->camera.x, 
-                pt->club_r.y - pt->camera.y, 
-                pt->club_r.w, pt->club_r.h};
+        pt->puck.r.x - pt->camera.x, 
+        pt->puck.r.y - pt->camera.y, 
+        pt->puck.r.w, pt->puck.r.h
+    };
 
     // puck hitbox
     SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
     SDL_RenderFillRect(r, &pq);
-
-    // club hitbox
-    if (player->swing) 
-        SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-    else 
-        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-
-    SDL_RenderFillRect(r, &cq);
-
-    // player
-    renderPlayer(
-        r, 
-        player->texture->t,
-        player, 
-        pt->camera.x, 
-        pt->camera.y);
-
-    if (pt->crosshair.show) 
-    {
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-        SDL_RenderFillRect(r, &pt->crosshair.r);
-    }
 }
 
 void renderTiles(SDL_Renderer *renderer, P_TEST *pt)
@@ -697,7 +774,7 @@ void animatePlayer(P *p)
     else p->c_index = (p->facing * 4) + p->a_index;
 }
 
-void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
+void playTopDownShooter(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
@@ -709,7 +786,7 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
             case SDL_KEYDOWN:
                 if (!ev.key.repeat)
                 {
-                    pt->JOY_use = false;
+                    pt->c_player->JOY_use = false;
 
                     switch (ev.key.keysym.sym)
                     {
@@ -723,24 +800,24 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
                         case SDLK_RETURN2:
                         break;
                         case SDLK_a: 
-                            enqueue(pt->input_q, KEY_LEFT);
+                            enqueue(pt->c_player->input_q, KEY_LEFT);
                         break;
                         case SDLK_w: 
-                            enqueue(pt->input_q, KEY_UP);
+                            enqueue(pt->c_player->input_q, KEY_UP);
                         break;
                         case SDLK_d: 
-                            enqueue(pt->input_q, KEY_RIGHT);
+                            enqueue(pt->c_player->input_q, KEY_RIGHT);
                         break;
                         case SDLK_s: 
-                            enqueue(pt->input_q, KEY_DOWN); 
+                            enqueue(pt->c_player->input_q, KEY_DOWN); 
                         break;
                         case SDLK_SPACE:
                         case SDLK_KP_SPACE:
-                            if (!player->sprint_cdown && !player->swing) 
+                            if (!pt->c_player->sprint_cdown && !pt->c_player->swing) 
                             {
-                                player->sprint = true;
-                                player->gvel = SPRINT_VELOCITY;
-                                player->vel = SPRINT_VELOCITY;
+                                pt->c_player->sprint = true;
+                                pt->c_player->gvel = SPRINT_VELOCITY;
+                                pt->c_player->vel = SPRINT_VELOCITY;
                             }
                         break;
                     }
@@ -750,16 +827,16 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
                 switch (ev.key.keysym.sym)
                 {
                     case SDLK_a: 
-                        dequeue(pt->input_q, KEY_LEFT);
+                        dequeue(pt->c_player->input_q, KEY_LEFT);
                     break;
                     case SDLK_w: 
-                        dequeue(pt->input_q, KEY_UP);
+                        dequeue(pt->c_player->input_q, KEY_UP);
                     break;
                     case SDLK_d: 
-                        dequeue(pt->input_q, KEY_RIGHT);
+                        dequeue(pt->c_player->input_q, KEY_RIGHT);
                     break;
                     case SDLK_s: 
-                        dequeue(pt->input_q, KEY_DOWN);
+                        dequeue(pt->c_player->input_q, KEY_DOWN);
                     break;
                     case SDLK_SPACE:
                     case SDLK_KP_SPACE:
@@ -769,21 +846,44 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
             case SDL_MOUSEMOTION:
                 if (pt->w_focus)
                 {
-                    pt->JOY_use = false;
+                    pt->c_player->JOY_use = false;
 
-                    pt->crosshair.r.x += ev.motion.xrel;
-                    pt->crosshair.r.y += ev.motion.yrel;
+                    pt->c_player->crosshair.r.x += ev.motion.xrel;
+                    pt->c_player->crosshair.r.y += ev.motion.yrel;
 
-                    pt->m_move = true;
+                    pt->c_player->m_move = true;
                 }
             break;
             case SDL_MOUSEBUTTONDOWN:
                 if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
                 {
-                    if (!player->swing)
+                    if (!pt->c_player->grab)
                     {
-                        player->vel -= player->gvel * 0.25f;
-                        player->swing = true;
+                        if (!pt->c_player->swing && !pt->c_player->m_hold)
+                        {
+                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                            pt->c_player->swing = true;
+                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                        }
+                    
+                        pt->c_player->m_hold = true;
+                    }
+                    else pt->c_player->m_hold = true;
+                }
+            break;
+            case SDL_MOUSEBUTTONUP:
+                if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
+                {
+                    if (!pt->c_player->grab) pt->c_player->m_hold = false;
+                    else 
+                    {
+                        if (!pt->c_player->swing && pt->c_player->m_hold)
+                        {
+                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                            pt->c_player->swing = true;
+                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                        }
+                        pt->c_player->m_hold = false;
                     }
                 }
             break;
@@ -794,76 +894,93 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
                     {
                         case 0:
                         case 1:
-                            pt->JOY_use = true;
+                            pt->c_player->JOY_use = true;
 
                             if (ev.jaxis.axis == 0)
                             {
                                 if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->JOY_xdir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                                    pt->c_player->JOY_xdir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
                                 else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->JOY_xdir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                                    pt->c_player->JOY_xdir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
                                 else 
-                                    pt->JOY_xdir = 0;
+                                    pt->c_player->JOY_xdir = 0;
                             }
                             else if (ev.jaxis.axis == 1)
                             {
                                 if (ev.jaxis.value < -JOYSTICK_DEADZONE) 
-                                    pt->JOY_ydir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                                    pt->c_player->JOY_ydir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
                                 else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->JOY_ydir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                                    pt->c_player->JOY_ydir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
                                 else 
-                                    pt->JOY_ydir = 0;
+                                    pt->c_player->JOY_ydir = 0;
                             }
 
                             // this is too much, but it works
-                            pt->JOY_vel = (
-                                pt->JOY_xdir < 0 ? -pt->JOY_xdir : pt->JOY_xdir * SDL_cos(player->INPUT_angle)) + (
-                                pt->JOY_ydir < 0 ? -pt->JOY_ydir : pt->JOY_ydir * SDL_sin(player->INPUT_angle));
+                            pt->c_player->JOY_vel = (
+                                pt->c_player->JOY_xdir < 0 ? -pt->c_player->JOY_xdir : pt->c_player->JOY_xdir * SDL_cos(pt->c_player->INPUT_angle)) + (
+                                pt->c_player->JOY_ydir < 0 ? -pt->c_player->JOY_ydir : pt->c_player->JOY_ydir * SDL_sin(pt->c_player->INPUT_angle));
 
-                            if (pt->JOY_vel > 0.75f) pt->JOY_vel = 1.0f;
+                            if (pt->c_player->JOY_vel > 0.75f) pt->c_player->JOY_vel = 1.0f;
                         break;
                         case 3:
                         case 4:
-                            pt->m_move = true;
-                            pt->JOY_use = true;
+                            pt->c_player->m_move = true;
+                            pt->c_player->JOY_use = true;
 
                             if (ev.jaxis.axis == 3)
                             {
-                                pt->AIM_xvel = (ev.jaxis.value / 32767.0f);
+                                pt->c_player->AIM_xvel = (ev.jaxis.value / 32767.0f);
 
                                 if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->AIM_xdir = -1; 
+                                    pt->c_player->AIM_xdir = -1; 
                                 else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->AIM_xdir = 1;
+                                    pt->c_player->AIM_xdir = 1;
                                 else 
-                                    pt->AIM_xdir = 0;
+                                    pt->c_player->AIM_xdir = 0;
                             }
                             else if (ev.jaxis.axis == 4)
                             {
-                                pt->AIM_yvel = (ev.jaxis.value / 32767.0f);
+                                pt->c_player->AIM_yvel = (ev.jaxis.value / 32767.0f);
 
                                 if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->AIM_ydir = -1;
+                                    pt->c_player->AIM_ydir = -1;
                                 else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->AIM_ydir = 1;
+                                    pt->c_player->AIM_ydir = 1;
                                 else 
-                                    pt->AIM_ydir = 0;
+                                    pt->c_player->AIM_ydir = 0;
                             }
                         break;
                         case 2:
                         break;
                         case 5:
-                            if (ev.jaxis.value > -16000)
+                            if (!pt->c_player->grab)
                             {
-                                if (!player->swing && !pt->m_hold) 
+                                if (ev.jaxis.value > -16000)
                                 {
-                                    player->vel -= player->gvel * 0.25f;
-                                    player->swing = true;
+                                    if (!pt->c_player->swing && !pt->c_player->m_hold) 
+                                    {
+                                        pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                        pt->c_player->swing = true;
+                                        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                    }
+                                    pt->c_player->m_hold = true;
+                                } 
+                                else pt->c_player->m_hold = false;
+                            }
+                            else 
+                            {
+                                if (ev.jaxis.value > -16000) pt->c_player->m_hold = true;
+                                else 
+                                {
+                                    if (!pt->c_player->swing && pt->c_player->m_hold) 
+                                    {
+                                        pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                        pt->c_player->swing = true;
+                                        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                    }
+                                    pt->c_player->m_hold = false;
                                 }
-
-                                pt->m_hold = true;
-                            } 
-                            else pt->m_hold = false;
+                            }
                         break;
                     }
                 }
@@ -873,19 +990,40 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player)
                 {
                     if (ev.jbutton.button == 0)
                     {
-                        if (!player->sprint_cdown && !player->swing) 
+                        if (!pt->c_player->sprint_cdown && !pt->c_player->swing) 
                         {
-                            player->sprint = true;
-                            player->gvel = SPRINT_VELOCITY;
-                            player->vel = SPRINT_VELOCITY;
+                            pt->c_player->sprint = true;
+                            pt->c_player->gvel = SPRINT_VELOCITY;
+                            pt->c_player->vel = SPRINT_VELOCITY;
                         }
                     }
                 }
             break;
+            case SDL_JOYDEVICEADDED:
+                for (int i = 0; i < SDL_NumJoysticks(); i++) 
+                {
+                    if (SDL_IsGameController(i)) 
+                    {
+                        pt->controller = SDL_GameControllerOpen(i);
+                        if (pt->controller) 
+                        {
+                            printf("Controller %d connected!\n", i);
+                            break;
+                        }
+                        else fprintf(
+                            stderr, 
+                            "Could not open gamecontroller %i: %s\n", 
+                            i, SDL_GetError());
+                    }
+                }
+            break;
+            case SDL_JOYDEVICEREMOVED:
+                printf("Controller %d disconnected!\n", ev.jdevice.which);
+            break;
         }
     }
 }
-
+/*
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy)
 {
     bool success = false;
@@ -918,6 +1056,7 @@ bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy)
 
     return success;
 }
+*/
 
 void enqueue(unsigned char *q, unsigned char val)
 {
@@ -953,7 +1092,7 @@ void updateBulletHits(B_HITS *hits, int bx, int by)
     if (++hits->index > 29) hits->index = 0;
 }
 
-void updateTopDownShoot(P_TEST *pt, P *player)
+void updateTopDownShoot(P_TEST *pt, P players[])
 {
     switch (pt->state)
     {
@@ -962,27 +1101,18 @@ void updateTopDownShoot(P_TEST *pt, P *player)
         case P_SCORE:
             if (++pt->SCORE_timer > 240)
             {
-                player->x = (player->mx << pt->level.t_bit_size) + (pt->level.t_size >> 1);
-                player->y = (player->my << pt->level.t_bit_size) + (pt->level.t_size >> 1);
-                player->xvel = 0;
-                player->yvel = 0;
-                player->swing_timer = 0;
-                player->swing = false;
-                player->gvel = STANDARD_VELOCITY;
-                player->vel = STANDARD_VELOCITY;
-                player->sprint = false;
-                player->sprint_timer = 0;
-                player->sprint_cdown = false;
-                player->sprint_cdown_timer = 0;
+                for (int i = 0; i < 2; i++)
+                {
+                    resetPlayer(&players[i]);
+                    players[i].x = (players[i].mx << pt->level.t_bit_size) + (pt->level.t_size >> 1);
+                    players[i].y = (players[i].my << pt->level.t_bit_size) + (pt->level.t_size >> 1);
 
-                pt->camera.x = player->x - (pt->camera.w >> 1);
-                pt->camera.y = player->y - (pt->camera.h >> 1);
+                    players[i].club_r.x = players[i].x - 8 + players[i].AIM_radx;
+                    players[i].club_r.y = players[i].y - 8 + players[i].AIM_rady;
+                }
 
-                pt->club_r.x = player->x - 8 + pt->GUN_radx;
-                pt->club_r.y = player->y - 8 + pt->GUN_rady;
-
-                pt->puck.x = player->x;
-                pt->puck.y = player->y;
+                pt->puck.x = pt->screen.w >> 1;
+                pt->puck.y = pt->screen.h >> 1;
                 pt->puck.r.x = pt->puck.x;
                 pt->puck.r.y = pt->puck.y;
                 pt->puck.xvel = 0;
@@ -990,10 +1120,10 @@ void updateTopDownShoot(P_TEST *pt, P *player)
                 pt->puck.fvel = 0.01f;
                 pt->puck.hit = false;
                 pt->puck.hit_counter = 0;
+                pt->sprint_hud_r.w = 0;
 
-                pt->crosshair.r.x = pt->camera.w >> 1;
-                pt->crosshair.r.y = pt->camera.h >> 1;
-                pt->crosshair.show = false;
+                pt->camera.x = players[0].x - (pt->camera.w >> 1);
+                pt->camera.y = players[0].y - (pt->camera.h >> 1);
 
                 pt->SCORE_timer = 0;
 
@@ -1002,58 +1132,69 @@ void updateTopDownShoot(P_TEST *pt, P *player)
         break;
     }
 
-    if (player->sprint && (++player->sprint_timer > 60))
+    for (int i = 0; i < 2; i++)
     {
-        player->sprint_timer = 0;
-        player->sprint = false;
-        player->sprint_cdown = true;
-        player->gvel = STANDARD_VELOCITY;
-        player->vel = STANDARD_VELOCITY;
-    }
-    
-    if (player->sprint_cdown && (++player->sprint_cdown_timer > 300))
-    {
-        player->sprint_cdown = false;
-        player->sprint_cdown_timer = 0;
-    }
-
-    if (player->swing)
-    {
-        if (!pt->puck.hit)
+        if (players[i].spawned)
         {
-            if (checkCollision(pt->club_r, pt->puck.r))
+            updatePlayer(&players[i], pt);
+
+            if (players[i].swing && !players[i].grab && !pt->puck.hit)
             {
-                pt->puck.xvel = 5 * SDL_cos(pt->GUN_angle);
-                pt->puck.yvel = 5 * SDL_sin(pt->GUN_angle);
-                pt->puck.hit = true;
+                // check if another player has the puck
+                for (int j = 0; j < 2; j++)
+                {
+                    if (&players[i] != &players[j])
+                    {
+                        if (players[j].grab 
+                        && checkCollision(players[i].club_r, players[j].r))
+                        {
+                            // puck goes wild
+                            pt->puck.hit = true;
+                            pt->puck.xvel = 2 * SDL_cos(players[i].AIM_angle);
+                            pt->puck.yvel = 2 * SDL_sin(players[i].AIM_angle);
 
-                pt->PUCK_freeze = true;
+                            pt->PUCK_freeze = true;
 
-                player->swing_timer = 0;
-                player->vel = player->gvel;
+                            players[i].swing_timer = 0;
+                            players[i].vel = players[i].gvel;
 
-                Mix_PlayChannel(-1, pt->mix_chunks[0], 0);
+                            players[j].grab = false;
+
+                            Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                            break;
+                        }
+                    }
+                }
+            }
+            else if (!players[i].swing && !players[i].grab && !pt->puck.hit)
+            {
+                int n = 0;
+
+                for (int j = 0; j < 2; j++) if (players[j].grab) n++;
+
+                if (n == 0)
+                {
+                    if (checkCollision(players[i].r, pt->puck.r))
+                    {
+                        pt->puck.xvel = 0;
+                        pt->puck.yvel = 0;
+                        pt->puck.fvel = 0.01f;
+                        pt->puck.x = players[i].r.x + (players[i].r.w >> 1);
+                        pt->puck.y = players[i].r.y + (players[i].r.h >> 1);
+
+                        players[i].pvel = 3;
+                        players[i].grab = true;
+
+                        Mix_PlayChannel(-1 ,pt->mix_chunks[S_LOW], 0);
+                    }
+                }
             }
 
-            if (++player->swing_timer > 8)
-            {
-                player->swing = false;
-                player->swing_timer = 0;
-                player->vel = player->gvel;
-            }
-        }
-        else if (pt->puck.hit)
-        {
-            if (++player->swing_timer > 16)
-            {
-                player->swing = false;
-                player->swing_timer = 0;
-                player->vel = player->gvel;
-            }
+            animatePlayer(&players[i]);
         }
     }
 
-    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
+    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 2))
     {
         pt->PUCK_freeze = false;
         pt->PUCK_freeze_timer = 0;
@@ -1063,213 +1204,6 @@ void updateTopDownShoot(P_TEST *pt, P *player)
     {
         pt->puck.hit = false;
         pt->puck.hit_counter = 0;
-    }
-
-    if (pt->JOY_use)
-    {
-        if (pt->JOY_xdir == 0 && pt->JOY_ydir == 0)
-        {
-            player->INPUT_angle = 4;
-            pt->JOY_vel = 0;
-            pt->input_q[0] = 0;
-        }
-        else player->INPUT_angle = SDL_atan2(pt->JOY_ydir, pt->JOY_xdir);
-        
-        if ((pt->AIM_xdir || pt->AIM_ydir) && !player->swing)
-        {
-            pt->GUN_angle = SDL_atan2(pt->AIM_yvel, pt->AIM_xvel);
-
-            pt->crosshair.r.x = player->x - pt->camera.x + (100 * SDL_cos(pt->GUN_angle));
-            pt->crosshair.r.y = player->y - pt->camera.y + (100 * SDL_sin(pt->GUN_angle));
-        }
-        else 
-        {
-            pt->m_move = false;
-            pt->AIM_done = true;
-        }
-    }
-    else 
-    {
-        switch (*player->dir)
-        {
-            case KEY_LEFT:
-                if (pt->input_q[1] == KEY_UP) 
-                    player->INPUT_angle = I_UP_LEFT;
-                else if (pt->input_q[1] == KEY_DOWN) 
-                    player->INPUT_angle = I_DOWN_LEFT;
-                else 
-                    player->INPUT_angle = INPUT_LEFT;
-
-                pt->JOY_vel = 1;
-            break;
-            case KEY_RIGHT:
-                if (pt->input_q[1] == KEY_UP) 
-                    player->INPUT_angle = I_UP_RIGHT;
-                else if (pt->input_q[1] == KEY_DOWN) 
-                    player->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    player->INPUT_angle = INPUT_RIGHT;
-
-                pt->JOY_vel = 1;
-            break;
-            case KEY_UP:
-                if (pt->input_q[1] == KEY_LEFT) 
-                    player->INPUT_angle = I_UP_LEFT;
-                else if (pt->input_q[1] == KEY_RIGHT) 
-                    player->INPUT_angle = I_UP_RIGHT;
-                else 
-                    player->INPUT_angle = INPUT_UP;
-
-                pt->JOY_vel = 1;
-            break;
-            case KEY_DOWN:
-                if (pt->input_q[1] == KEY_LEFT) 
-                    player->INPUT_angle = I_DOWN_LEFT;
-                else if (pt->input_q[1] == KEY_RIGHT) 
-                    player->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    player->INPUT_angle = INPUT_DOWN;
-
-                pt->JOY_vel = 1;
-            break;
-            default:
-                player->INPUT_angle = 4;
-                pt->JOY_vel = 0;
-            break;
-        }
-
-        if (pt->m_move && !player->swing)
-        {
-            pt->GUN_angle = (SDL_atan2(
-                pt->camera.y + pt->crosshair.r.y - player->y, 
-                pt->camera.x + pt->crosshair.r.x - player->x));
-        }
-    }
-
-    float rx = 100 * SDL_cos(pt->GUN_angle), 
-          ry = 100 * SDL_sin(pt->GUN_angle);
-
-    // need to look over this 
-    if (pt->camera.x + pt->crosshair.r.x - player->x < 0)
-    {
-        if (pt->camera.x + pt->crosshair.r.x - player->x < rx) 
-            pt->crosshair.r.x = player->x - pt->camera.x + rx;
-    }
-    else if (pt->camera.x + pt->crosshair.r.x - player->x > 0)
-    {
-        if (pt->camera.x + pt->crosshair.r.x - player->x > rx)
-            pt->crosshair.r.x = player->x - pt->camera.x + rx;
-    }
-    //
-    if (pt->camera.y + pt->crosshair.r.y - player->y < 0)
-    {
-        if (pt->camera.y + pt->crosshair.r.y - player->y < ry) 
-            pt->crosshair.r.y = player->y - pt->camera.y + ry;
-    }
-    else if (pt->camera.y + pt->crosshair.r.y - player->y > 0)
-    {
-        if (pt->camera.y + pt->crosshair.r.y - player->y > ry)
-            pt->crosshair.r.y = player->y - pt->camera.y + ry;
-    }
-    //
-
-    if (player->INPUT_angle != 4 && !player->swing)
-    {
-        float   cos = SDL_cos(player->INPUT_angle) * player->vel * pt->JOY_vel,
-                sin = SDL_sin(player->INPUT_angle) * player->vel * pt->JOY_vel;
-
-        if (!pt->puck.hit)
-        {
-            if (player->xvel > cos)
-            {
-                player->xvel -= 0.375f;
-                if (player->xvel < cos) player->xvel = cos;
-            }
-            else if (player->xvel < cos)
-            {
-                player->xvel += 0.375f;
-                if (player->xvel > cos) player->xvel = cos;
-            }
-
-            if (player->yvel > sin)
-            {
-                player->yvel -= 0.375f;
-                if (player->yvel < sin) player->yvel = sin;
-            }
-            else if (player->yvel < sin)
-            {
-                player->yvel += 0.375f;
-                if (player->yvel > sin) player->yvel = sin;
-            }
-        }
-    }
-    else
-    {
-        if (!pt->puck.hit)
-        {
-            if (player->xvel > 0)
-            {
-                player->xvel -= 0.15f;
-                if (player->xvel < 0) player->xvel = 0;
-            }
-            else if (player->xvel < 0)
-            {
-                player->xvel += 0.15f;
-                if (player->xvel > 0) player->xvel = 0;
-            }
-            
-            if (player->yvel > 0)
-            {
-                player->yvel -= 0.15f;
-                if (player->yvel < 0) player->yvel = 0;
-            }
-            else if (player->yvel < 0)
-            {
-                player->yvel += 0.15f;
-                if (player->yvel > 0) player->yvel = 0;
-            }
-        }
-    }
-
-    if (!pt->puck.hit)
-    {
-        if (player->xvel)
-        {
-            float x = player->x + player->xvel;
-
-            if (!checkPlayerPosition(
-                (int)x >> pt->level.t_bit_size, 
-                (int)player->y >> pt->level.t_bit_size, 
-                pt->level.collision, 
-                pt->level.t_map_h)
-            )
-            {
-                if (!(x < 0 || x > pt->level.r.w)) 
-                    player->x = x;
-                else 
-                    player->xvel = 0;
-            }
-            else player->xvel = 0;
-        }
-
-        if (player->yvel)
-        {
-            float y = player->y + player->yvel;
-
-            if (!checkPlayerPosition(
-                (int)player->x >> pt->level.t_bit_size, 
-                (int)y >> pt->level.t_bit_size, 
-                pt->level.collision, 
-                pt->level.t_map_h)
-            )
-            {
-                if (!(y < 0 || y > pt->level.r.h)) 
-                    player->y = y;
-                else 
-                    player->yvel = 0;
-            } 
-            else player->yvel = 0;  
-        }
     }
 
     if (!pt->PUCK_freeze)
@@ -1355,73 +1289,6 @@ void updateTopDownShoot(P_TEST *pt, P *player)
         }
     }
 
-    if (pt->m_move)
-    {
-        pt->m_move = false;
-
-        pt->AIM_timer = 0;
-        pt->AIM_done = true;
-
-        pt->crosshair.show = true;
-    }
-
-    if (pt->AIM_done && pt->AIM_timer++ > 240) 
-    {
-        pt->AIM_done = false;
-        pt->AIM_timer = 0;
-
-        pt->crosshair.r.x = pt->screen.w >> 1;
-        pt->crosshair.r.y = pt->screen.h >> 1;
-        pt->crosshair.show = false;
-    }
-
-    if (pt->crosshair.show)
-    {
-        player->rx = player->x + (pt->crosshair.r.x - (pt->camera.w >> 1));
-        player->ry = player->y + (pt->crosshair.r.y - (pt->camera.h >> 1));
-    }
-    else 
-    {
-        player->rx = player->x;
-        player->ry = player->y;
-
-        if (player->INPUT_angle != 4)
-        {
-            if (!player->swing) pt->GUN_angle = player->INPUT_angle;
-        }
-    }
-
-    pt->GUN_radx = 10 * SDL_cos(pt->GUN_angle);
-    pt->GUN_rady = 10 * SDL_sin(pt->GUN_angle);
-
-    pt->club_r.x = player->x - 8 + pt->GUN_radx;
-    pt->club_r.y = player->y - 8 + pt->GUN_rady;
-
-    pt->GUN_deg = (pt->GUN_angle * 180) / M_PI;
-
-    if (pt->GUN_deg < 0) pt->GUN_deg += 360;
-
-    if (pt->GUN_deg > AIM_RIGHT || pt->GUN_deg < AIM_DOWN)
-    {
-        player->facing = 2; // right
-        if (pt->JOY_use && pt->JOY_vel) pt->input_q[0] = KEY_RIGHT;
-    }
-    else if (pt->GUN_deg > AIM_DOWN && pt->GUN_deg < AIM_LEFT)
-    {
-        player->facing = 0; // down
-        if (pt->JOY_use && pt->JOY_vel) pt->input_q[0] = KEY_DOWN;
-    }
-    else if (pt->GUN_deg > AIM_LEFT && pt->GUN_deg < AIM_UP)
-    {
-        player->facing = 3; // left
-        if (pt->JOY_use && pt->JOY_vel) pt->input_q[0] = KEY_LEFT;
-    }
-    else if (pt->GUN_deg > AIM_UP && pt->GUN_deg < AIM_RIGHT)
-    {
-        player->facing = 1; // up
-        if (pt->JOY_use && pt->JOY_vel) pt->input_q[0] = KEY_UP;
-    }
-
     // shot bullets
     /*
     for (int i = 0; i < 10; i++)
@@ -1492,17 +1359,351 @@ void updateTopDownShoot(P_TEST *pt, P *player)
     }
     */
 
-    animatePlayer(player);
-
     setCamera(
         &pt->camera, 
         lerp(
             pt->camera.x + (pt->camera.w >> 1), 
-            player->rx, 0.08f),
+            pt->c_player->rx, 0.08f),
         lerp(
             pt->camera.y + (pt->camera.h >> 1), 
-            player->ry, 0.08f)
+            pt->c_player->ry, 0.08f)
     );
+}
+
+void updateGame(P_TEST *p, P players[], Mix_Chunk chunks[])
+{
+
+}
+
+void updatePlayer(P *p, P_TEST *pt)
+{
+    if (p->sprint && (++p->sprint_timer > 60))
+    {
+        p->sprint_timer = 0;
+        p->sprint = false;
+        p->sprint_cdown = true;
+        p->gvel = STANDARD_VELOCITY;
+        p->vel = STANDARD_VELOCITY;
+    }
+
+    if (p->sprint_cdown && (++p->sprint_cdown_timer > 300))
+    {
+        p->sprint_cdown = false;
+        p->sprint_cdown_timer = 0;
+
+        pt->sprint_hud_r.w = 0;
+    }
+    else if (p->sprint_cdown)
+    {
+        pt->sprint_hud_r.w = (p->sprint_cdown_timer / 6) << 1;
+    }
+
+    if (p->m_hold)
+    {
+        if (p->grab && ((p->pvel += 0.1f) > 5))
+            p->pvel = 5;
+    }
+
+    if (p->swing)
+    {
+        if (p->grab)
+        {
+            pt->puck.xvel = p->pvel * SDL_cos(p->AIM_angle);
+            pt->puck.yvel = p->pvel * SDL_sin(p->AIM_angle);
+            pt->puck.hit = true;
+
+            pt->PUCK_freeze = true;
+
+            p->swing_timer = 0;
+            p->vel = p->gvel;
+            p->grab = false;
+        }
+
+        if (++p->swing_timer > 10)
+        {
+            p->swing = false;
+            p->swing_timer = 0;
+            p->vel = p->gvel;
+            p->pvel = 3;
+        }
+    }
+
+    if (p->grab)
+    {
+        pt->puck.x = p->r.x + (p->r.w >> 1);
+        pt->puck.y = p->r.y + (p->r.h >> 1);
+    }
+
+    if (p->JOY_use)
+    {
+        if (p->JOY_xdir == 0 && p->JOY_ydir == 0)
+        {
+            p->INPUT_angle = 4;
+            p->JOY_vel = 0;
+            p->input_q[0] = 0;
+        }
+        else 
+        {
+            p->INPUT_angle = SDL_atan2(p->JOY_ydir, p->JOY_xdir);
+        }
+        
+        if (p->AIM_xdir || p->AIM_ydir)
+        {
+            p->AIM_angle = SDL_atan2(p->AIM_yvel, p->AIM_xvel);
+
+            p->crosshair.r.x = p->x - pt->camera.x + (AIM_RADIUS * SDL_cos(p->AIM_angle));
+            p->crosshair.r.y = p->y - pt->camera.y + (AIM_RADIUS * SDL_sin(p->AIM_angle));
+        }
+        else 
+        {
+            p->crosshair.r.x = p->x - pt->camera.x;
+            p->crosshair.r.y = p->y - pt->camera.y;
+            p->crosshair.show = false;
+            p->m_move = false;
+        }
+    }
+    else 
+    {
+        switch (*p->dir)
+        {
+            case KEY_LEFT:
+                if (p->input_q[1] == KEY_UP) 
+                    p->INPUT_angle = I_UP_LEFT;
+                else if (p->input_q[1] == KEY_DOWN) 
+                    p->INPUT_angle = I_DOWN_LEFT;
+                else 
+                    p->INPUT_angle = INPUT_LEFT;
+
+                p->JOY_vel = 1;
+            break;
+            case KEY_RIGHT:
+                if (p->input_q[1] == KEY_UP) 
+                    p->INPUT_angle = I_UP_RIGHT;
+                else if (p->input_q[1] == KEY_DOWN) 
+                    p->INPUT_angle = I_DOWN_RIGHT;
+                else 
+                    p->INPUT_angle = INPUT_RIGHT;
+
+                p->JOY_vel = 1;
+            break;
+            case KEY_UP:
+                if (p->input_q[1] == KEY_LEFT) 
+                    p->INPUT_angle = I_UP_LEFT;
+                else if (p->input_q[1] == KEY_RIGHT) 
+                    p->INPUT_angle = I_UP_RIGHT;
+                else 
+                    p->INPUT_angle = INPUT_UP;
+
+                p->JOY_vel = 1;
+            break;
+            case KEY_DOWN:
+                if (p->input_q[1] == KEY_LEFT) 
+                    p->INPUT_angle = I_DOWN_LEFT;
+                else if (p->input_q[1] == KEY_RIGHT) 
+                    p->INPUT_angle = I_DOWN_RIGHT;
+                else 
+                    p->INPUT_angle = INPUT_DOWN;
+
+                p->JOY_vel = 1;
+            break;
+            default:
+                p->INPUT_angle = 4;
+                p->JOY_vel = 0;
+            break;
+        }
+
+        if (p->m_move && !p->swing)
+        {
+            p->AIM_angle = (SDL_atan2(
+                pt->camera.y + p->crosshair.r.y - p->y, 
+                pt->camera.x + p->crosshair.r.x - p->x));
+        }
+    }
+
+    float rx = AIM_RADIUS * SDL_cos(p->AIM_angle), 
+          ry = AIM_RADIUS * SDL_sin(p->AIM_angle);
+
+    // need to look over this 
+    if (pt->camera.x + p->crosshair.r.x - p->x < 0)
+    {
+        if (pt->camera.x + p->crosshair.r.x - p->x < rx) 
+            p->crosshair.r.x = p->x - pt->camera.x + rx;
+    }
+    else if (pt->camera.x + p->crosshair.r.x - p->x > 0)
+    {
+        if (pt->camera.x + p->crosshair.r.x - p->x > rx)
+            p->crosshair.r.x = p->x - pt->camera.x + rx;
+    }
+    //
+    if (pt->camera.y + p->crosshair.r.y - p->y < 0)
+    {
+        if (pt->camera.y + p->crosshair.r.y - p->y < ry) 
+            p->crosshair.r.y = p->y - pt->camera.y + ry;
+    }
+    else if (pt->camera.y + p->crosshair.r.y - p->y > 0)
+    {
+        if (pt->camera.y + p->crosshair.r.y - p->y > ry)
+            p->crosshair.r.y = p->y - pt->camera.y + ry;
+    }
+    //
+
+    if (p->INPUT_angle != 4 && !p->swing)
+    {
+        float   cos = SDL_cos(p->INPUT_angle) * p->vel * p->JOY_vel,
+                sin = SDL_sin(p->INPUT_angle) * p->vel * p->JOY_vel;
+
+        if (p->xvel > cos)
+        {
+            p->xvel -= 0.1f;
+            if (p->xvel < cos) p->xvel = cos;
+        }
+        else if (p->xvel < cos)
+        {
+            p->xvel += 0.1f;
+            if (p->xvel > cos) p->xvel = cos;
+        }
+
+        if (p->yvel > sin)
+        {
+            p->yvel -= 0.1f;
+            if (p->yvel < sin) p->yvel = sin;
+        }
+        else if (p->yvel < sin)
+        {
+            p->yvel += 0.1f;
+            if (p->yvel > sin) p->yvel = sin;
+        }
+    }
+    else
+    {
+        if (p->xvel > 0)
+        {
+            p->xvel -= 0.02f;
+            if (p->xvel < 0) p->xvel = 0;
+        }
+        else if (p->xvel < 0)
+        {
+            p->xvel += 0.02f;
+            if (p->xvel > 0) p->xvel = 0;
+        }
+        
+        if (p->yvel > 0)
+        {
+            p->yvel -= 0.02f;
+            if (p->yvel < 0) p->yvel = 0;
+        }
+        else if (p->yvel < 0)
+        {
+            p->yvel += 0.02f;
+            if (p->yvel > 0) p->yvel = 0;
+        }
+    }
+
+    p->r.x = p->x - 10;
+    p->r.y = p->y;
+
+    if (!pt->PUCK_freeze)
+    {
+        if (p->xvel)
+        {
+            float x = p->x + p->xvel;
+
+            if (!checkPlayerPosition(
+                (int)x >> pt->level.t_bit_size, 
+                (int)p->y >> pt->level.t_bit_size, 
+                pt->level.collision, 
+                pt->level.t_map_h)
+            )
+            {
+                if (!(x < 0 || x > pt->level.r.w)) p->x = x;
+                else p->xvel = 0;
+            }
+            else p->xvel = 0;
+        }
+
+        if (p->yvel)
+        {
+            float y = p->y + p->yvel;
+
+            if (!checkPlayerPosition(
+                (int)p->x >> pt->level.t_bit_size, 
+                (int)y >> pt->level.t_bit_size, 
+                pt->level.collision, 
+                pt->level.t_map_h)
+            )
+            {
+                if (!(y < 0 || y > pt->level.r.h)) p->y = y;
+                else p->yvel = 0;
+            } 
+            else p->yvel = 0;  
+        }
+    }
+
+    if (p->m_move)
+    {
+        p->m_move = false;
+
+        p->AIM_timer = 0;
+        p->AIM_done = true;
+
+        p->crosshair.show = true;
+    }
+
+    if (p->AIM_done && p->AIM_timer++ > 240) 
+    {
+        p->AIM_done = false;
+        p->AIM_timer = 0;
+
+        p->crosshair.r.x = p->x - pt->camera.x;
+        p->crosshair.r.y = p->y - pt->camera.y;
+        p->crosshair.show = false;
+    }
+
+    p->rx = (int)(p->x + pt->puck.x) >> 1;
+    p->ry = (int)(p->y + pt->puck.y) >> 1;
+    
+    if (!p->crosshair.show)
+    {
+        if (p->INPUT_angle != 4)
+        {
+            if (!p->swing) p->AIM_angle = p->INPUT_angle;
+        }
+    }
+
+    p->AIM_radx = 10 * SDL_cos(p->AIM_angle);
+    p->AIM_rady = 10 * SDL_sin(p->AIM_angle);
+
+    p->club_r.x = p->x - 8 + p->AIM_radx;
+    p->club_r.y = p->y - 8 + p->AIM_rady;
+
+    p->AIM_deg = (p->AIM_angle * 180) / M_PI;
+
+    if (p->AIM_deg < 0) p->AIM_deg += 360;
+
+    if (p->AIM_deg > AIM_RIGHT || p->AIM_deg < AIM_DOWN)
+    {
+        p->facing = 2; // right
+        if (p->JOY_use && p->JOY_vel) 
+            p->input_q[0] = KEY_RIGHT;
+    }
+    else if (p->AIM_deg > AIM_DOWN && p->AIM_deg < AIM_LEFT)
+    {
+        p->facing = 0; // down
+        if (p->JOY_use && p->JOY_vel) 
+            p->input_q[0] = KEY_DOWN;
+    }
+    else if (p->AIM_deg > AIM_LEFT && p->AIM_deg < AIM_UP)
+    {
+        p->facing = 3; // left
+        if (p->JOY_use && p->JOY_vel) 
+            p->input_q[0] = KEY_LEFT;
+    }
+    else if (p->AIM_deg > AIM_UP && p->AIM_deg < AIM_RIGHT)
+    {
+        p->facing = 1; // up
+        if (p->JOY_use && p->JOY_vel) 
+            p->input_q[0] = KEY_UP;
+    }
 }
 
 void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy)
@@ -1562,25 +1763,18 @@ void renderPlayTiles(SDL_Renderer *renderer, P_TEST pt)
 
 void setupPlay(P_TEST *pt, P *player)
 {
-    for (int i = 0; i < 4; i++)
-        pt->input_q[i] = 0;
+    pt->c_player = player;
 
-    player->xvel = 0;
-    player->yvel = 0;
-
-    player->x = (player->mx << pt->level.t_bit_size) + (pt->level.t_size >> 1);
-    player->y = (player->my << pt->level.t_bit_size) + (pt->level.t_size >> 1);
-
-    pt->camera.x = player->x - (pt->camera.w >> 1);
-    pt->camera.y = player->y - (pt->camera.h >> 1);
+    pt->camera.x = pt->c_player->x - (pt->camera.w >> 1);
+    pt->camera.y = pt->c_player->y - (pt->camera.h >> 1);
     
     pt->state = P_PLAY;
 
-    pt->club_r.x = player->x - 8 + pt->GUN_radx;
-    pt->club_r.y = player->y - 8 + pt->GUN_rady;
+    pt->c_player->club_r.x = pt->c_player->x - 8 + pt->c_player->AIM_radx;
+    pt->c_player->club_r.y = pt->c_player->y - 8 + pt->c_player->AIM_rady;
 
-    pt->puck.x = player->x;
-    pt->puck.y = player->y;
+    pt->puck.x = pt->c_player->x;
+    pt->puck.y = pt->c_player->y;
 
     pt->puck.r.x = pt->puck.x;
     pt->puck.r.y = pt->puck.y;
@@ -1592,15 +1786,8 @@ void setupPlay(P_TEST *pt, P *player)
     pt->puck.hit = false;
     pt->puck.hit_counter = 0;
 
-    player->shoot = false;
-    player->gun_timer = 0;
-
-    pt->crosshair.r.x = pt->camera.w >> 1;
-    pt->crosshair.r.y = pt->camera.h >> 1;
-
-    for (int i = 0; i < 10; i++)
-        player->bullets[i].shoot = false;
-    
+    pt->c_player->r.x = pt->c_player->x - pt->camera.x;
+    pt->c_player->r.y = pt->c_player->y - pt->camera.y;
 }
 
 void resetPlay(P_TEST *pt, P *player)
@@ -1614,5 +1801,24 @@ void resetPlay(P_TEST *pt, P *player)
     player->state = FALLING;
 
     for (int i = 0; i < 4; i++)
-        pt->input_q[i] = 0;
+        pt->c_player->input_q[i] = 0;
+}
+
+void resetPlayer(P *player)
+{
+    player->xvel = 0;
+    player->yvel = 0;
+    player->swing_timer = 0;
+    player->swing = false;
+    player->gvel = STANDARD_VELOCITY;
+    player->vel = STANDARD_VELOCITY;
+    player->pvel = 3;
+    player->sprint = false;
+    player->sprint_timer = 0;
+    player->sprint_cdown = false;
+    player->sprint_cdown_timer = 0;
+
+    //player->crosshair.r.x = player->x - pt->camera.x;
+    //player->crosshair.r.y = player->y - pt->camera.y;
+    player->crosshair.show = false;
 }

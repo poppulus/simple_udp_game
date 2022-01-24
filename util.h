@@ -3,8 +3,6 @@
 #define FPS 60
 #define TICKS 1000 / FPS
 
-#define AIM_RADIUS 100
-
 #define W_WIDTH 640
 #define W_HEIGHT 480
 
@@ -21,9 +19,11 @@
 #define MAP_START 74
 
 #define STANDARD_VELOCITY 2.0F
-#define SPRINT_VELOCITY 2.5F
+#define SPRINT_VELOCITY 3.0F
 
 #define JOYSTICK_DEADZONE 8000
+
+#define AIM_RADIUS 50
 
 #define AIM_RIGHT 315
 #define AIM_DOWN  45
@@ -47,6 +47,15 @@
 #include <dirent.h>
 #include <stdio.h>
 #include <stdbool.h>
+
+enum PLAY_SOUND
+{
+    S_LOW,
+    S_MEDIUM,
+    S_HIGH,
+    S_SCRATCH,
+    S_BEAT
+};
 
 enum PLAY_TYPE
 {
@@ -130,24 +139,32 @@ typedef struct Player
 {
     T *texture;
 
+    X_HAIR crosshair;
+
     int mx, my, rx, ry;
 
     short sprint_cdown_timer;
 
     float   x, y, xvel, yvel, 
-            gvel, vel,
-            INPUT_angle;
+            gvel, vel, pvel,
+            INPUT_angle, AIM_angle,
+            AIM_xvel, AIM_yvel, 
+            AIM_xdir, AIM_ydir,
+            AIM_radx, AIM_rady, AIM_deg,
+            JOY_xdir, JOY_ydir, JOY_vel;
 
-    SDL_Rect r, clip, *t_clips;
+    SDL_Rect r, clip, *t_clips, club_r;
 
-    bool shoot:1, sprint:1, sprint_cdown:1, swing:1;
+    bool    shoot:1, sprint:1, sprint_cdown:1, 
+            swing:1, grab:1, spawned:1,
+            JOY_use:1, AIM_done:1,
+            m_move:1, m_hold:1;
 
-    char xdir, ydir;
-
-    unsigned char *dir, facing,
+    unsigned char *dir, input_q[4], facing,
                    a_counter, yvel_counter,
                    a_index, c_index,
-                   gun_timer, sprint_timer, swing_timer;
+                   sprint_timer, swing_timer, 
+                   AIM_timer;
 
     enum PLAYER_STATE state;
 
@@ -170,32 +187,23 @@ typedef struct Play_Test
     SDL_GameController *controller;
     L level;
     SDL_Rect gunClips[25];
-    X_HAIR crosshair;
     Puck puck;
+    P *c_player; 
 
-    SDL_Rect screen, camera, club_r, goal_r, *t_clips;
+    SDL_Rect screen, camera, goal_r, sprint_hud_r, *t_clips;
 
     enum PLAY_TYPE style;
     enum PLAY_STATE state;
 
-    unsigned char   GUN_delay, GUN_speed, AIM_timer, SCORE_timer,
+    unsigned char   GUN_delay, GUN_speed, SCORE_timer,
                     PUCK_freeze_timer,
-                    input_q[4], t_n_size, t_bit_size, *m_buffer;
+                    t_n_size, t_bit_size, *m_buffer;
 
-    char AIM_xdir, AIM_ydir, f_buffer[MAP_START];
+    char f_buffer[MAP_START];
     
-    float   GUN_angle, 
-            AIM_xvel, AIM_yvel,
-            JOY_xdir, JOY_ydir,
-            JOY_vel, AIM_vel, 
-            channel_volume;
+    short channel_volume;
 
-    short GUN_deg, GUN_radx, GUN_rady, JOY_deg;
-
-    bool AIM_done:1, AIM_dir:1, JOY_use:1, 
-         PUCK_freeze:1,
-         m_move:1, m_hold:1, 
-         quit:1, w_focus:1;
+    bool PUCK_freeze:1, quit:1, w_focus:1;
     
     char TEXT_gun_speed[2];
 
@@ -225,7 +233,7 @@ bool loadMap(SDL_Renderer *r, P_TEST *pt, char str[]);
 void closeSdl(SDL_Window **w, SDL_Renderer **r, Mix_Chunk *m[]);
 
 void freeBuffers(P_TEST *pt);
-void freePlayer(P *p);
+void freePlayer(P p[]);
 void freePlayTest(P_TEST *ptest);
 void freeTexture(T *text);
 
@@ -234,7 +242,7 @@ bool initTexture(SDL_Renderer *r, T *texture, const char path[]);
 bool initTextureMap(SDL_Renderer *r, P_TEST *pt, char *str);
 void initLevel(P_TEST *pt);
 void initMap(P_TEST *pt);
-void initPlayer(P *p, L l, unsigned char *buf);
+void initPlayer(P *p, L l, unsigned char b[]);
 void initPlayerClips(SDL_Rect clips[]);
 void initTiles(P_TEST *pt);
 
@@ -244,18 +252,21 @@ void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s)
 void setupPlay(P_TEST *pt, P *player);
 void resetPlay(P_TEST *pt, P *player);
 
+void resetPlayer(P *player);
+
 void updateBulletHits(B_HITS *hits, int bx, int by);
-void updateTopDownShoot(P_TEST *pt, P *player);
-void updateGame(P_TEST *p, Mix_Chunk *chunk);
+void updateTopDownShoot(P_TEST *pt, P players[]);
+void updateGame(P_TEST *p, P players[], Mix_Chunk chunks[]);
+void updatePlayer(P *p, P_TEST *pt);
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *p);
 
-void playTopDownShooter(P_TEST *pt, SDL_Event ev, P *player);
+void playTopDownShooter(P_TEST *pt, SDL_Event ev);
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
 
 void readInputs(SDL_Renderer *r, P_TEST *pt, SDL_Event event);
 
-void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P *player);
+void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[]);
 
 void renderTiles(SDL_Renderer *r, P_TEST *pt);
 void renderTexture(SDL_Renderer *r, T *t, SDL_Rect *clip, int x, int y, const double angle, const SDL_RendererFlip flip);
