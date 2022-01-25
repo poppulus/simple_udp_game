@@ -111,6 +111,8 @@ int main(int argc, const char *argv[])
                     
                     play_test.channel_volume = 32;
 
+                    Mix_Volume(-1, 32);
+
                     play_test.PUCK_freeze = false;
                     play_test.PUCK_freeze_timer = 0;
 

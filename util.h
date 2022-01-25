@@ -70,19 +70,21 @@ enum PLAY_STATE
     P_SCORE
 };
 
+enum PLAYER_STATE 
+{
+    SKATE_NP,
+    SKATE_WP,
+    SHOOT,
+    SWING,
+    THROW
+};
+
 enum KEYBOARD_INPUTS
 {
     KEY_DOWN = 1,
     KEY_UP,
     KEY_RIGHT,
     KEY_LEFT
-};
-
-enum PLAYER_STATE 
-{
-    STANDING, 
-    FALLING,
-    JUMPING
 };
 
 typedef struct Texture
@@ -138,8 +140,9 @@ typedef struct BULLET_HITS
 typedef struct Player
 {
     T *texture;
-
     X_HAIR crosshair;
+
+    enum PLAYER_STATE state;
 
     int mx, my, rx, ry;
 
@@ -156,17 +159,16 @@ typedef struct Player
     SDL_Rect r, clip, *t_clips, club_r;
 
     bool    shoot:1, sprint:1, sprint_cdown:1, 
-            swing:1, grab:1, spawned:1,
+            swing:1, grab:1, block:1, spawned:1,
+            bounce:1,
             JOY_use:1, AIM_done:1,
             m_move:1, m_hold:1;
 
     unsigned char *dir, input_q[4], facing,
                    a_counter, yvel_counter,
                    a_index, c_index,
-                   sprint_timer, swing_timer, 
+                   sprint_timer, swing_timer, block_timer,
                    AIM_timer;
-
-    enum PLAYER_STATE state;
 
     BUL bullets[10];
 } P;
@@ -199,9 +201,7 @@ typedef struct Play_Test
                     PUCK_freeze_timer,
                     t_n_size, t_bit_size, *m_buffer;
 
-    char f_buffer[MAP_START];
-    
-    short channel_volume;
+    char f_buffer[MAP_START], channel_volume;
 
     bool PUCK_freeze:1, quit:1, w_focus:1;
     
@@ -225,6 +225,7 @@ void n_itoa(int n, char s[]);
 bool checkCollision(SDL_Rect a, SDL_Rect b);
 bool checkPlayerPosition(int x, int y, unsigned char map[], int msize);
 bool checkGoal(SDL_Rect puck, SDL_Rect goal);
+bool checkPuckCollision(float x, float y, SDL_Rect player);
 
 SDL_Texture *loadTexture(SDL_Renderer *r, const char path[]);
 

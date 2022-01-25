@@ -111,6 +111,16 @@ bool checkGoal(SDL_Rect puck, SDL_Rect goal)
     return true;
 }
 
+bool checkPuckCollision(float x, float y, SDL_Rect player)
+{
+    if (x >= (player.x + player.w)) return false;
+    if (x <= player.x) return false;
+    if (y >= (player.y + player.h)) return false;
+    if (y <= player.y) return false;
+
+    return true;
+}
+
 void freeTexture(T *text)
 {
     if (text->t != NULL)
@@ -453,6 +463,8 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     for (int i = 0; i < 4; i++)
         p->input_q[i] = 0;
 
+    p->state = SKATE_NP;
+
     p->AIM_angle = 4;
     p->AIM_deg = 0;
     p->AIM_radx = 0;
@@ -481,9 +493,12 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     p->spawned = true;
     p->m_hold = false;
     p->m_move = false;
+    p->block = false;
+    p->bounce = false;
 
     p->sprint_timer = 0;
     p->sprint_cdown_timer = 0;
+    p->block_timer = 0;
 
     p->c_index = 0;
     p->facing = 0;
@@ -680,21 +695,29 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                 20, 20
             };
 
-            // club hitbox
-            if (players[i].swing) 
-                SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+            // player hitbox
+            if (players[i].block) 
+                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
             else 
                 SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
 
-            if (players[i].pvel == 5) 
-                SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-
-            SDL_RenderFillRect(r, &cq);
-
-            SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
             SDL_RenderFillRect(r, &pq);
 
-            // player
+            // club hitbox
+            if (!players[i].block)
+            {
+                if (players[i].swing) 
+                    SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+                else 
+                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+
+                if (players[i].pvel == 5) 
+                    SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+
+                SDL_RenderFillRect(r, &cq);
+            }
+            
+            // player texture
             renderPlayer(
                 r, 
                 players[i].texture->t,
@@ -857,33 +880,39 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev)
             case SDL_MOUSEBUTTONDOWN:
                 if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
                 {
-                    if (!pt->c_player->grab)
+                    if (!pt->c_player->block)
                     {
-                        if (!pt->c_player->swing && !pt->c_player->m_hold)
+                        if (!pt->c_player->grab)
                         {
-                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                            pt->c_player->swing = true;
-                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                            if (!pt->c_player->swing && !pt->c_player->m_hold)
+                            {
+                                pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                pt->c_player->swing = true;
+                                Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                            }
+                        
+                            pt->c_player->m_hold = true;
                         }
-                    
-                        pt->c_player->m_hold = true;
+                        else pt->c_player->m_hold = true;
                     }
-                    else pt->c_player->m_hold = true;
                 }
             break;
             case SDL_MOUSEBUTTONUP:
                 if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
                 {
-                    if (!pt->c_player->grab) pt->c_player->m_hold = false;
-                    else 
+                    if (!pt->c_player->block)
                     {
-                        if (!pt->c_player->swing && pt->c_player->m_hold)
+                        if (!pt->c_player->grab) pt->c_player->m_hold = false;
+                        else 
                         {
-                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                            pt->c_player->swing = true;
-                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                            if (!pt->c_player->swing && pt->c_player->m_hold)
+                            {
+                                pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                pt->c_player->swing = true;
+                                Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                            }
+                            pt->c_player->m_hold = false;
                         }
-                        pt->c_player->m_hold = false;
                     }
                 }
             break;
@@ -953,32 +982,35 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev)
                         case 2:
                         break;
                         case 5:
-                            if (!pt->c_player->grab)
+                            if (!pt->c_player->block)
                             {
-                                if (ev.jaxis.value > -16000)
+                                if (!pt->c_player->grab)
                                 {
-                                    if (!pt->c_player->swing && !pt->c_player->m_hold) 
+                                    if (ev.jaxis.value > -16000)
                                     {
-                                        pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                        pt->c_player->swing = true;
-                                        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
-                                    }
-                                    pt->c_player->m_hold = true;
-                                } 
-                                else pt->c_player->m_hold = false;
-                            }
-                            else 
-                            {
-                                if (ev.jaxis.value > -16000) pt->c_player->m_hold = true;
+                                        if (!pt->c_player->swing && !pt->c_player->m_hold) 
+                                        {
+                                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                            pt->c_player->swing = true;
+                                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                        }
+                                        pt->c_player->m_hold = true;
+                                    } 
+                                    else pt->c_player->m_hold = false;
+                                }
                                 else 
                                 {
-                                    if (!pt->c_player->swing && pt->c_player->m_hold) 
+                                    if (ev.jaxis.value > -16000) pt->c_player->m_hold = true;
+                                    else 
                                     {
-                                        pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                        pt->c_player->swing = true;
-                                        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                        if (!pt->c_player->swing && pt->c_player->m_hold) 
+                                        {
+                                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                            pt->c_player->swing = true;
+                                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                        }
+                                        pt->c_player->m_hold = false;
                                     }
-                                    pt->c_player->m_hold = false;
                                 }
                             }
                         break;
@@ -988,13 +1020,21 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev)
             case SDL_JOYBUTTONDOWN:
                 if (ev.jbutton.which == 0)
                 {
-                    if (ev.jbutton.button == 0)
+                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
                     {
-                        if (!pt->c_player->sprint_cdown && !pt->c_player->swing) 
+                        if (!pt->c_player->sprint_cdown && !pt->c_player->swing && !pt->c_player->block) 
                         {
                             pt->c_player->sprint = true;
                             pt->c_player->gvel = SPRINT_VELOCITY;
                             pt->c_player->vel = SPRINT_VELOCITY;
+                        }
+                    }
+                    else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_B)
+                    {
+                        if (!pt->c_player->block && !pt->c_player->swing && !pt->c_player->shoot && !pt->c_player->grab)
+                        {
+                            pt->c_player->block = true;
+                            pt->c_player->vel += STANDARD_VELOCITY * 0.5f;
                         }
                     }
                 }
@@ -1138,7 +1178,7 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         {
             updatePlayer(&players[i], pt);
 
-            if (players[i].swing && !players[i].grab && !pt->puck.hit)
+            if (players[i].swing && !players[i].grab && !pt->puck.hit && !players[i].block)
             {
                 // check if another player has the puck
                 for (int j = 0; j < 2; j++)
@@ -1146,7 +1186,7 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                     if (&players[i] != &players[j])
                     {
                         if (players[j].grab 
-                        && checkCollision(players[i].club_r, players[j].r))
+                        && checkCollision(players[i].club_r, players[j].club_r))
                         {
                             // puck goes wild
                             pt->puck.hit = true;
@@ -1166,7 +1206,7 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                     }
                 }
             }
-            else if (!players[i].swing && !players[i].grab && !pt->puck.hit)
+            else if (!players[i].swing && !players[i].grab && !pt->puck.hit && !players[i].block)
             {
                 int n = 0;
 
@@ -1179,8 +1219,8 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                         pt->puck.xvel = 0;
                         pt->puck.yvel = 0;
                         pt->puck.fvel = 0.01f;
-                        pt->puck.x = players[i].r.x + (players[i].r.w >> 1);
-                        pt->puck.y = players[i].r.y + (players[i].r.h >> 1);
+                        pt->puck.x = players[i].club_r.x + (players[i].club_r.w >> 1);
+                        pt->puck.y = players[i].club_r.y + (players[i].club_r.h >> 1);
 
                         players[i].pvel = 3;
                         players[i].grab = true;
@@ -1238,6 +1278,19 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         {
             float px = pt->puck.x + pt->puck.xvel;
 
+            for (int i = 0; i < 2; i++)
+            {
+                if (players[i].block && !players[i].bounce)
+                {
+                    if (checkPuckCollision(px, pt->puck.y, players[i].r))
+                    {
+                        players[i].bounce = true;
+                        pt->puck.xvel = -pt->puck.xvel;
+                        pt->puck.fvel += 0.15f;
+                    }
+                }
+            }
+
             if (checkPlayerPosition(
                 (int)px >> pt->level.t_bit_size, 
                 (int)pt->puck.y >> pt->level.t_bit_size, 
@@ -1258,6 +1311,19 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         if (pt->puck.yvel)
         {
             float py = pt->puck.y + pt->puck.yvel;
+
+            for (int i = 0; i < 2; i++)
+            {
+                if (players[i].block && !players[i].bounce)
+                {
+                    if (checkPuckCollision(pt->puck.x, py, players[i].r))
+                    {
+                        players[i].bounce = true;
+                        pt->puck.yvel = -pt->puck.yvel;
+                        pt->puck.fvel += 0.15f;
+                    }
+                }
+            }
 
             if (checkPlayerPosition(
                 (int)pt->puck.x >> pt->level.t_bit_size, 
@@ -1398,6 +1464,21 @@ void updatePlayer(P *p, P_TEST *pt)
         pt->sprint_hud_r.w = (p->sprint_cdown_timer / 6) << 1;
     }
 
+    if (p->block)
+    {
+        p->JOY_vel = 1;
+
+        if ((p->vel -= 0.05f) < 0) p->vel = 0;
+
+        if (++p->block_timer > 60)
+        {
+            p->bounce = false;
+            p->block = false;
+            p->block_timer = 0;
+            p->vel = STANDARD_VELOCITY;
+        }
+    }
+
     if (p->m_hold)
     {
         if (p->grab && ((p->pvel += 0.1f) > 5))
@@ -1406,6 +1487,8 @@ void updatePlayer(P *p, P_TEST *pt)
 
     if (p->swing)
     {
+        p->JOY_vel = 0;
+
         if (p->grab)
         {
             pt->puck.xvel = p->pvel * SDL_cos(p->AIM_angle);
@@ -1430,23 +1513,25 @@ void updatePlayer(P *p, P_TEST *pt)
 
     if (p->grab)
     {
-        pt->puck.x = p->r.x + (p->r.w >> 1);
-        pt->puck.y = p->r.y + (p->r.h >> 1);
+        pt->puck.x = p->club_r.x + (p->club_r.w >> 1);
+        pt->puck.y = p->club_r.y + (p->club_r.h >> 1);
     }
 
     if (p->JOY_use)
     {
-        if (p->JOY_xdir == 0 && p->JOY_ydir == 0)
+        if (!p->block)
         {
-            p->INPUT_angle = 4;
-            p->JOY_vel = 0;
-            p->input_q[0] = 0;
+            if (p->JOY_xdir == 0 && p->JOY_ydir == 0)
+            {
+                p->JOY_vel = 0;
+                p->input_q[0] = 0;
+            }
+            else 
+            {
+                p->INPUT_angle = SDL_atan2(p->JOY_ydir, p->JOY_xdir);
+            }
         }
-        else 
-        {
-            p->INPUT_angle = SDL_atan2(p->JOY_ydir, p->JOY_xdir);
-        }
-        
+
         if (p->AIM_xdir || p->AIM_ydir)
         {
             p->AIM_angle = SDL_atan2(p->AIM_yvel, p->AIM_xvel);
@@ -1464,54 +1549,56 @@ void updatePlayer(P *p, P_TEST *pt)
     }
     else 
     {
-        switch (*p->dir)
+        if (!p->block)
         {
-            case KEY_LEFT:
-                if (p->input_q[1] == KEY_UP) 
-                    p->INPUT_angle = I_UP_LEFT;
-                else if (p->input_q[1] == KEY_DOWN) 
-                    p->INPUT_angle = I_DOWN_LEFT;
-                else 
-                    p->INPUT_angle = INPUT_LEFT;
+            switch (*p->dir)
+            {
+                case KEY_LEFT:
+                    if (p->input_q[1] == KEY_UP) 
+                        p->INPUT_angle = I_UP_LEFT;
+                    else if (p->input_q[1] == KEY_DOWN) 
+                        p->INPUT_angle = I_DOWN_LEFT;
+                    else 
+                        p->INPUT_angle = INPUT_LEFT;
 
-                p->JOY_vel = 1;
-            break;
-            case KEY_RIGHT:
-                if (p->input_q[1] == KEY_UP) 
-                    p->INPUT_angle = I_UP_RIGHT;
-                else if (p->input_q[1] == KEY_DOWN) 
-                    p->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_RIGHT;
+                    p->JOY_vel = 1;
+                break;
+                case KEY_RIGHT:
+                    if (p->input_q[1] == KEY_UP) 
+                        p->INPUT_angle = I_UP_RIGHT;
+                    else if (p->input_q[1] == KEY_DOWN) 
+                        p->INPUT_angle = I_DOWN_RIGHT;
+                    else 
+                        p->INPUT_angle = INPUT_RIGHT;
 
-                p->JOY_vel = 1;
-            break;
-            case KEY_UP:
-                if (p->input_q[1] == KEY_LEFT) 
-                    p->INPUT_angle = I_UP_LEFT;
-                else if (p->input_q[1] == KEY_RIGHT) 
-                    p->INPUT_angle = I_UP_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_UP;
+                    p->JOY_vel = 1;
+                break;
+                case KEY_UP:
+                    if (p->input_q[1] == KEY_LEFT) 
+                        p->INPUT_angle = I_UP_LEFT;
+                    else if (p->input_q[1] == KEY_RIGHT) 
+                        p->INPUT_angle = I_UP_RIGHT;
+                    else 
+                        p->INPUT_angle = INPUT_UP;
 
-                p->JOY_vel = 1;
-            break;
-            case KEY_DOWN:
-                if (p->input_q[1] == KEY_LEFT) 
-                    p->INPUT_angle = I_DOWN_LEFT;
-                else if (p->input_q[1] == KEY_RIGHT) 
-                    p->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_DOWN;
+                    p->JOY_vel = 1;
+                break;
+                case KEY_DOWN:
+                    if (p->input_q[1] == KEY_LEFT) 
+                        p->INPUT_angle = I_DOWN_LEFT;
+                    else if (p->input_q[1] == KEY_RIGHT) 
+                        p->INPUT_angle = I_DOWN_RIGHT;
+                    else 
+                        p->INPUT_angle = INPUT_DOWN;
 
-                p->JOY_vel = 1;
-            break;
-            default:
-                p->INPUT_angle = 4;
-                p->JOY_vel = 0;
-            break;
+                    p->JOY_vel = 1;
+                break;
+                default:
+                    p->JOY_vel = 0;
+                break;
+            }
         }
-
+        
         if (p->m_move && !p->swing)
         {
             p->AIM_angle = (SDL_atan2(
@@ -1547,34 +1634,34 @@ void updatePlayer(P *p, P_TEST *pt)
     }
     //
 
-    if (p->INPUT_angle != 4 && !p->swing)
+    if (p->JOY_vel)
     {
         float   cos = SDL_cos(p->INPUT_angle) * p->vel * p->JOY_vel,
                 sin = SDL_sin(p->INPUT_angle) * p->vel * p->JOY_vel;
 
         if (p->xvel > cos)
         {
-            p->xvel -= 0.1f;
+            p->xvel -= 0.2f;
             if (p->xvel < cos) p->xvel = cos;
         }
         else if (p->xvel < cos)
         {
-            p->xvel += 0.1f;
+            p->xvel += 0.2;
             if (p->xvel > cos) p->xvel = cos;
         }
 
         if (p->yvel > sin)
         {
-            p->yvel -= 0.1f;
+            p->yvel -= 0.2f;
             if (p->yvel < sin) p->yvel = sin;
         }
         else if (p->yvel < sin)
         {
-            p->yvel += 0.1f;
+            p->yvel += 0.2f;
             if (p->yvel > sin) p->yvel = sin;
         }
     }
-    else
+    else 
     {
         if (p->xvel > 0)
         {
@@ -1602,41 +1689,38 @@ void updatePlayer(P *p, P_TEST *pt)
     p->r.x = p->x - 10;
     p->r.y = p->y;
 
-    if (!pt->PUCK_freeze)
+    if (p->xvel)
     {
-        if (p->xvel)
-        {
-            float x = p->x + p->xvel;
+        float x = p->x + p->xvel;
 
-            if (!checkPlayerPosition(
-                (int)x >> pt->level.t_bit_size, 
-                (int)p->y >> pt->level.t_bit_size, 
-                pt->level.collision, 
-                pt->level.t_map_h)
-            )
-            {
-                if (!(x < 0 || x > pt->level.r.w)) p->x = x;
-                else p->xvel = 0;
-            }
+        if (!checkPlayerPosition(
+            (int)x >> pt->level.t_bit_size, 
+            (int)p->y >> pt->level.t_bit_size, 
+            pt->level.collision, 
+            pt->level.t_map_h)
+        )
+        {
+            if (!(x < 0 || x > pt->level.r.w)) p->x = x;
             else p->xvel = 0;
         }
+        else p->xvel = 0;
+    }
 
-        if (p->yvel)
+    if (p->yvel)
+    {
+        float y = p->y + p->yvel;
+
+        if (!checkPlayerPosition(
+            (int)p->x >> pt->level.t_bit_size, 
+            (int)y >> pt->level.t_bit_size, 
+            pt->level.collision, 
+            pt->level.t_map_h)
+        )
         {
-            float y = p->y + p->yvel;
-
-            if (!checkPlayerPosition(
-                (int)p->x >> pt->level.t_bit_size, 
-                (int)y >> pt->level.t_bit_size, 
-                pt->level.collision, 
-                pt->level.t_map_h)
-            )
-            {
-                if (!(y < 0 || y > pt->level.r.h)) p->y = y;
-                else p->yvel = 0;
-            } 
-            else p->yvel = 0;  
-        }
+            if (!(y < 0 || y > pt->level.r.h)) p->y = y;
+            else p->yvel = 0;
+        } 
+        else p->yvel = 0;  
     }
 
     if (p->m_move)
@@ -1664,10 +1748,7 @@ void updatePlayer(P *p, P_TEST *pt)
     
     if (!p->crosshair.show)
     {
-        if (p->INPUT_angle != 4)
-        {
-            if (!p->swing) p->AIM_angle = p->INPUT_angle;
-        }
+        if (!p->swing) p->AIM_angle = p->INPUT_angle;
     }
 
     p->AIM_radx = 10 * SDL_cos(p->AIM_angle);
@@ -1798,7 +1879,7 @@ void resetPlay(P_TEST *pt, P *player)
     player->xvel = 0;
     player->yvel = 0;
 
-    player->state = FALLING;
+    player->state = SKATE_NP;
 
     for (int i = 0; i < 4; i++)
         pt->c_player->input_q[i] = 0;
