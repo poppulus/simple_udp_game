@@ -111,12 +111,12 @@ bool checkGoal(SDL_Rect puck, SDL_Rect goal)
     return true;
 }
 
-bool checkPuckCollision(float x, float y, SDL_Rect player)
+bool checkPuckCollision(float x, float y, SDL_Rect box)
 {
-    if (x >= (player.x + player.w)) return false;
-    if (x <= player.x) return false;
-    if (y >= (player.y + player.h)) return false;
-    if (y <= player.y) return false;
+    if (x >= (box.x + box.w)) return false;
+    if (x <= box.x) return false;
+    if (y >= (box.y + box.h)) return false;
+    if (y <= box.y) return false;
 
     return true;
 }
@@ -680,6 +680,15 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
         (pt->GUN_deg > 90 && pt->GUN_deg < 270) ? SDL_FLIP_VERTICAL : SDL_FLIP_NONE);
     */
 
+   SDL_Rect kq = {
+       pt->goalie.r.x - pt->camera.x, 
+       pt->goalie.r.y - pt->camera.y,
+       pt->goalie.r.w, pt->goalie.r.h
+    };
+
+    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+    SDL_RenderFillRect(r, &kq);
+
     for (int i = 0; i < 2; i++)
     {
         if (players[i].spawned)
@@ -692,7 +701,7 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             pq = {
                 players[i].r.x - pt->camera.x, 
                 players[i].r.y - pt->camera.y, 
-                20, 20
+                players[i].r.w, players[i].r.h
             };
 
             // player hitbox
@@ -718,12 +727,65 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             }
             
             // player texture
-            renderPlayer(
-                r, 
-                players[i].texture->t,
-                &players[i], 
-                pt->camera.x, 
-                pt->camera.y);
+            if (checkCollision(players[i].r, pt->camera))
+            {
+                renderPlayer(
+                    r, 
+                    players[i].texture->t,
+                    &players[i], 
+                    pt->camera.x, 
+                    pt->camera.y);
+            }
+            else 
+            {
+                int nx = players[i].r.x - pt->camera.x, 
+                    ny = players[i].r.y - pt->camera.y;
+
+                if (players[i].r.x + players[i].r.w < pt->camera.x)
+                {
+                    if (ny < 0) ny = 10;
+                    else if (ny > W_HEIGHT - 32) ny = W_HEIGHT - 32;
+
+                    FC_DrawColor(
+                        f, r, 
+                        10, ny, 
+                        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                        "P%d", i + 1);
+                }
+                else if (players[i].r.x > pt->camera.x + pt->camera.w)
+                {
+                    if (ny < 0) ny = 10;
+                    else if (ny > W_HEIGHT - 32) ny = W_HEIGHT - 32;
+
+                    FC_DrawColor(
+                        f, r, 
+                        W_WIDTH - 32, ny, 
+                        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                        "P%d", i + 1);
+                }
+                else if (players[i].r.y + players[i].r.h < pt->camera.y)
+                {
+                    if (nx < 0) nx = 10;
+                    else if (nx > W_WIDTH - 32) nx = W_WIDTH - 32;
+
+                    FC_DrawColor(
+                        f, r, 
+                        nx, 10, 
+                        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                        "P%d", i + 1);
+                }
+                else if (players[i].r.y > pt->camera.y + pt->camera.h)
+                {
+                    if (nx < 0) nx = 10;
+                    else if (nx > W_WIDTH - 32) nx = W_WIDTH - 32;
+
+                    FC_DrawColor(
+                        f, r, 
+                        nx, W_HEIGHT - 26, 
+                        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                        "P%d", i + 1);
+                }
+            }
 
             if (players[i].crosshair.show) 
             {
@@ -793,7 +855,7 @@ void animatePlayer(P *p)
         }
     }
 
-    if (p->facing == 3) p->c_index = 8 + p->a_index;
+    if (p->facing == FACING_LEFT) p->c_index = 8 + p->a_index;
     else p->c_index = (p->facing * 4) + p->a_index;
 }
 
@@ -1035,6 +1097,25 @@ void playTopDownShooter(P_TEST *pt, SDL_Event ev)
                         {
                             pt->c_player->block = true;
                             pt->c_player->vel += STANDARD_VELOCITY * 0.5f;
+                            switch (pt->c_player->facing)
+                            {
+                                case FACING_DOWN:
+                                    pt->c_player->r.w = 16;
+                                    pt->c_player->r.h = 30;
+                                break;
+                                case FACING_UP:
+                                    pt->c_player->r.w = 16;
+                                    pt->c_player->r.h = 30;
+                                break;
+                                case FACING_RIGHT:
+                                    pt->c_player->r.w = 30;
+                                    pt->c_player->r.h = 16;
+                                break;
+                                case FACING_LEFT:
+                                    pt->c_player->r.w = 30;
+                                    pt->c_player->r.h = 16;
+                                break;
+                            }
                         }
                     }
                 }
@@ -1141,6 +1222,7 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         case P_SCORE:
             if (++pt->SCORE_timer > 240)
             {
+                /*
                 for (int i = 0; i < 2; i++)
                 {
                     resetPlayer(&players[i]);
@@ -1150,7 +1232,8 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                     players[i].club_r.x = players[i].x - 8 + players[i].AIM_radx;
                     players[i].club_r.y = players[i].y - 8 + players[i].AIM_rady;
                 }
-
+                */
+                /*
                 pt->puck.x = pt->screen.w >> 1;
                 pt->puck.y = pt->screen.h >> 1;
                 pt->puck.r.x = pt->puck.x;
@@ -1161,9 +1244,12 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                 pt->puck.hit = false;
                 pt->puck.hit_counter = 0;
                 pt->sprint_hud_r.w = 0;
+                */
 
-                pt->camera.x = players[0].x - (pt->camera.w >> 1);
-                pt->camera.y = players[0].y - (pt->camera.h >> 1);
+                //pt->camera.x = players[0].x - (pt->camera.w >> 1);
+                //pt->camera.y = players[0].y - (pt->camera.h >> 1);
+
+                //pt->goalie.y = 256;
 
                 pt->SCORE_timer = 0;
 
@@ -1190,8 +1276,8 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                         {
                             // puck goes wild
                             pt->puck.hit = true;
-                            pt->puck.xvel = 2 * SDL_cos(players[i].AIM_angle);
-                            pt->puck.yvel = 2 * SDL_sin(players[i].AIM_angle);
+                            pt->puck.xvel = SDL_cos(players[i].AIM_angle);
+                            pt->puck.yvel = SDL_sin(players[i].AIM_angle);
 
                             pt->PUCK_freeze = true;
 
@@ -1219,6 +1305,8 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                         pt->puck.xvel = 0;
                         pt->puck.yvel = 0;
                         pt->puck.fvel = 0.01f;
+                        pt->puck.fvelx = 0.01f;
+                        pt->puck.fvely = 0.01f;
                         pt->puck.x = players[i].club_r.x + (players[i].club_r.w >> 1);
                         pt->puck.y = players[i].club_r.y + (players[i].club_r.h >> 1);
 
@@ -1291,6 +1379,12 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                 }
             }
 
+            if (checkPuckCollision(px, pt->puck.y, pt->goalie.r))
+            {
+                pt->puck.xvel = -pt->puck.xvel;
+                pt->puck.fvel += 0.05f;
+            }
+
             if (checkPlayerPosition(
                 (int)px >> pt->level.t_bit_size, 
                 (int)pt->puck.y >> pt->level.t_bit_size, 
@@ -1298,12 +1392,12 @@ void updateTopDownShoot(P_TEST *pt, P players[])
             )
             {
                 pt->puck.xvel = -pt->puck.xvel;
-                pt->puck.fvel += 0.01f;
+                pt->puck.fvel += 0.05f;
             }
             else if (px < 0 || px > pt->level.r.w) 
             {
                 pt->puck.xvel = -pt->puck.xvel;
-                pt->puck.fvel += 0.01f;
+                pt->puck.fvel += 0.05f;
             }
             else pt->puck.x = px;
         }
@@ -1325,6 +1419,12 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                 }
             }
 
+            if (checkPuckCollision(pt->puck.x, py, pt->goalie.r))
+            {
+                pt->puck.yvel = -pt->puck.yvel;
+                pt->puck.fvel += 0.05f;
+            }
+
             if (checkPlayerPosition(
                 (int)pt->puck.x >> pt->level.t_bit_size, 
                 (int)py >> pt->level.t_bit_size, 
@@ -1332,12 +1432,12 @@ void updateTopDownShoot(P_TEST *pt, P players[])
             )
             {
                 pt->puck.yvel = -pt->puck.yvel;
-                pt->puck.fvel += 0.01f;
+                pt->puck.fvel += 0.05f;
             }
             else if (py < 0 || py > pt->level.r.h) 
             {
                 pt->puck.yvel = -pt->puck.yvel;
-                pt->puck.fvel += 0.01f;
+                pt->puck.fvel += 0.05f;
             }
             else pt->puck.y = py;
         }
@@ -1348,82 +1448,51 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         pt->puck.r.x = pt->puck.x;
         pt->puck.r.y = pt->puck.y;
 
+        if (pt->state != P_SCORE && !pt->PUCK_freeze)
+        {
+            if (pt->puck.y < pt->goalie.y)
+            {
+                float f = 0.85f;
+
+                if (pt->puck.x - pt->goalie.x < 100)
+                    f = 1.375f;
+                else if (pt->puck.x - pt->goalie.x < 150)
+                    f = 1.25f;
+                else if (pt->puck.x - pt->goalie.x < 200)
+                    f = 1.15f;
+
+                if ((pt->goalie.y -= f) < pt->puck.r.y)
+                    pt->goalie.y = pt->puck.r.y;
+
+                if (pt->goalie.y < 224) pt->goalie.y = 224;
+            }
+            else if (pt->puck.y > pt->goalie.y)
+            {
+                float f = 0.85f;
+
+                if (pt->puck.x - pt->goalie.x < 100)
+                    f = 1.375f;
+                else if (pt->puck.x - pt->goalie.x < 150)
+                    f = 1.25f;
+                else if (pt->puck.x - pt->goalie.x < 200)
+                    f = 1.15f;
+
+                if ((pt->goalie.y += f) > pt->puck.r.y)
+                    pt->goalie.y = pt->puck.r.y;
+                
+                if (pt->goalie.y > 288) pt->goalie.y = 288;
+            }
+        }
+
+        pt->goalie.r.x = pt->goalie.x - 10;
+        pt->goalie.r.y = pt->goalie.y - 10;
+
         if (!pt->state == P_SCORE 
         && checkGoal(pt->puck.r, pt->goal_r))
         {
             pt->state = P_SCORE;
         }
     }
-
-    // shot bullets
-    /*
-    for (int i = 0; i < 10; i++)
-    {
-        if (player->bullets[i].shoot)
-        {
-            player->bullets[i].x += player->bullets[i].xvel;
-            player->bullets[i].y += player->bullets[i].yvel;
-
-            player->bullets[i].r.x = player->bullets[i].x - pt->camera.x;
-            player->bullets[i].r.y = player->bullets[i].y - pt->camera.y;
-
-            if (player->bullets[i].x > pt->level.r.w 
-            || player->bullets[i].x < 0) 
-                player->bullets[i].shoot = false;
-            else if (player->bullets[i].y > pt->level.r.h 
-            || player->bullets[i].y < 0) 
-                player->bullets[i].shoot = false;
-            else 
-            {
-                // the naming is wonky but it does the job, checking bullet collision
-                // this could be dependent on speed and tile/target size
-                if (checkPlayerPosition(
-                    (int)player->bullets[i].x >> pt->level.t_bit_size, 
-                    (int)player->bullets[i].y >> pt->level.t_bit_size, 
-                    pt->level.collision, pt->level.t_map_h)
-                )
-                {
-                    // first check
-
-                    updateBulletHits(
-                        &pt->bullet_hits, 
-                        (int)player->bullets[i].x, 
-                        (int)player->bullets[i].y);
-                    
-                    player->bullets[i].shoot = false;
-                    continue;
-                }
-                // need to check if we already passed a target/tile
-                else if (
-                    checkPlayerPosition(
-                        ((int)(
-                            player->bullets[i].x - (player->bullets[i].xvel / 2)) 
-                            >> pt->level.t_bit_size),
-                        ((int)(
-                            player->bullets[i].y - (player->bullets[i].yvel / 2)) 
-                            >> pt->level.t_bit_size),
-                        pt->level.collision, pt->level.t_map_h
-                    )
-                )
-                {
-                    // second check
-
-                    updateBulletHits(
-                        &pt->bullet_hits, 
-                        (int)player->bullets[i].x, 
-                        (int)player->bullets[i].y);
-
-                    player->bullets[i].shoot = false;
-                    continue;
-                }
-                else
-                {
-                    
-                }
-            }
-        }
-    }
-    */
 
     setCamera(
         &pt->camera, 
@@ -1476,6 +1545,9 @@ void updatePlayer(P *p, P_TEST *pt)
             p->block = false;
             p->block_timer = 0;
             p->vel = STANDARD_VELOCITY;
+
+            p->r.w = 20;
+            p->r.h = 20;
         }
     }
 
@@ -1491,6 +1563,8 @@ void updatePlayer(P *p, P_TEST *pt)
 
         if (p->grab)
         {
+            pt->puck.x = p->x;
+            pt->puck.y = p->y;
             pt->puck.xvel = p->pvel * SDL_cos(p->AIM_angle);
             pt->puck.yvel = p->pvel * SDL_sin(p->AIM_angle);
             pt->puck.hit = true;
@@ -1501,8 +1575,8 @@ void updatePlayer(P *p, P_TEST *pt)
             p->vel = p->gvel;
             p->grab = false;
         }
-
-        if (++p->swing_timer > 10)
+        
+        if (++p->swing_timer > (p->grab ? 20 : 10))
         {
             p->swing = false;
             p->swing_timer = 0;
@@ -1686,9 +1760,6 @@ void updatePlayer(P *p, P_TEST *pt)
         }
     }
 
-    p->r.x = p->x - 10;
-    p->r.y = p->y;
-
     if (p->xvel)
     {
         float x = p->x + p->xvel;
@@ -1723,6 +1794,34 @@ void updatePlayer(P *p, P_TEST *pt)
         else p->yvel = 0;  
     }
 
+    if (p->block)
+    {
+        switch (p->facing)
+        {
+            case FACING_DOWN:
+                p->r.x = p->x - 8;
+                p->r.y = p->y;
+            break;
+            case FACING_UP:
+                p->r.x = p->x - 8;
+                p->r.y = p->y - 10;
+            break;
+            case FACING_RIGHT:
+                p->r.x = p->x - 10;
+                p->r.y = p->y + 5;
+            break;
+            case FACING_LEFT:
+                p->r.x = p->x - 20;
+                p->r.y = p->y + 5;
+            break;
+        }
+    }
+    else 
+    {
+        p->r.x = p->x - 10;
+        p->r.y = p->y;
+    }
+
     if (p->m_move)
     {
         p->m_move = false;
@@ -1743,8 +1842,8 @@ void updatePlayer(P *p, P_TEST *pt)
         p->crosshair.show = false;
     }
 
-    p->rx = (int)(p->x + pt->puck.x) >> 1;
-    p->ry = (int)(p->y + pt->puck.y) >> 1;
+    p->rx = pt->puck.x; //(int)(p->x + pt->puck.x) >> 1;
+    p->ry = pt->puck.y; //(int)(p->y + pt->puck.y) >> 1;
     
     if (!p->crosshair.show)
     {
@@ -1763,25 +1862,25 @@ void updatePlayer(P *p, P_TEST *pt)
 
     if (p->AIM_deg > AIM_RIGHT || p->AIM_deg < AIM_DOWN)
     {
-        p->facing = 2; // right
+        p->facing = FACING_RIGHT; // right
         if (p->JOY_use && p->JOY_vel) 
             p->input_q[0] = KEY_RIGHT;
     }
     else if (p->AIM_deg > AIM_DOWN && p->AIM_deg < AIM_LEFT)
     {
-        p->facing = 0; // down
+        p->facing = FACING_DOWN; // down
         if (p->JOY_use && p->JOY_vel) 
             p->input_q[0] = KEY_DOWN;
     }
     else if (p->AIM_deg > AIM_LEFT && p->AIM_deg < AIM_UP)
     {
-        p->facing = 3; // left
+        p->facing = FACING_LEFT; // left
         if (p->JOY_use && p->JOY_vel) 
             p->input_q[0] = KEY_LEFT;
     }
     else if (p->AIM_deg > AIM_UP && p->AIM_deg < AIM_RIGHT)
     {
-        p->facing = 1; // up
+        p->facing = FACING_UP; // up
         if (p->JOY_use && p->JOY_vel) 
             p->input_q[0] = KEY_UP;
     }
@@ -1797,13 +1896,10 @@ void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy)
         p->clip.h
     };
 
-    if (p->facing == 3) 
+    if (p->facing == 3) // flip
         SDL_RenderCopyEx(r, t, &p->t_clips[p->c_index], &renderQuad, 0, NULL, SDL_FLIP_HORIZONTAL);
     else 
         SDL_RenderCopy(r, t, &p->t_clips[p->c_index], &renderQuad);
-
-    // for sprite flipping
-    //SDL_RenderCopyEx(r, t, &p->t_clips[p->a_index], &renderQuad, 0, NULL, SDL_FLIP_NONE);
 }
 
 void renderPlayTiles(SDL_Renderer *renderer, P_TEST pt)

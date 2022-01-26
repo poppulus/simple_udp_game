@@ -79,6 +79,14 @@ enum PLAYER_STATE
     THROW
 };
 
+enum PLAYER_FACING
+{
+    FACING_DOWN, 
+    FACING_UP, 
+    FACING_RIGHT, 
+    FACING_LEFT
+};
+
 enum KEYBOARD_INPUTS
 {
     KEY_DOWN = 1,
@@ -137,12 +145,20 @@ typedef struct BULLET_HITS
     unsigned char index;
 } B_HITS;
 
+typedef struct PLAY_GOALIE
+{
+    SDL_Rect r;
+    float x, y;
+    unsigned char delay;
+} P_G;
+
 typedef struct Player
 {
     T *texture;
     X_HAIR crosshair;
 
     enum PLAYER_STATE state;
+    enum PLAYER_FACING facing;
 
     int mx, my, rx, ry;
 
@@ -164,7 +180,7 @@ typedef struct Player
             JOY_use:1, AIM_done:1,
             m_move:1, m_hold:1;
 
-    unsigned char *dir, input_q[4], facing,
+    unsigned char *dir, input_q[4],
                    a_counter, yvel_counter,
                    a_index, c_index,
                    sprint_timer, swing_timer, block_timer,
@@ -178,7 +194,7 @@ typedef struct Puck
     SDL_Rect r;
     bool hit:1;
     unsigned char hit_counter;
-    float x, y, xvel, yvel, fvel;
+    float x, y, xvel, yvel, fvel, fvelx, fvely;
 } Puck;
 
 typedef struct Play_Test
@@ -190,6 +206,7 @@ typedef struct Play_Test
     L level;
     SDL_Rect gunClips[25];
     Puck puck;
+    P_G goalie;
     P *c_player; 
 
     SDL_Rect screen, camera, goal_r, sprint_hud_r, *t_clips;
@@ -225,7 +242,7 @@ void n_itoa(int n, char s[]);
 bool checkCollision(SDL_Rect a, SDL_Rect b);
 bool checkPlayerPosition(int x, int y, unsigned char map[], int msize);
 bool checkGoal(SDL_Rect puck, SDL_Rect goal);
-bool checkPuckCollision(float x, float y, SDL_Rect player);
+bool checkPuckCollision(float x, float y, SDL_Rect box);
 
 SDL_Texture *loadTexture(SDL_Renderer *r, const char path[]);
 

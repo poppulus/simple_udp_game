@@ -141,6 +141,12 @@ int main(int argc, const char *argv[])
                     play_test.goal_r.x = 48;
                     play_test.goal_r.y = 224;
 
+                    play_test.goalie.x = 106;
+                    play_test.goalie.y = 256;
+                    play_test.goalie.r.w = 16;
+                    play_test.goalie.r.h = 20;
+                    play_test.goalie.delay = 0;
+
                     play_test.sprint_hud_r.w = 0;
                     play_test.sprint_hud_r.h = 16;
                     play_test.sprint_hud_r.x = 300;
