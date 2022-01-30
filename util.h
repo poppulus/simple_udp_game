@@ -79,6 +79,12 @@ enum PLAYER_STATE
     THROW
 };
 
+enum GOALIE_STATE
+{
+    G_NORMAL, 
+    G_CLEAR_GOAL
+};
+
 enum PLAYER_FACING
 {
     FACING_DOWN, 
@@ -148,8 +154,10 @@ typedef struct BULLET_HITS
 typedef struct PLAY_GOALIE
 {
     SDL_Rect r;
+    enum GOALIE_STATE state;
     float x, y;
-    unsigned char delay;
+    unsigned char s_timer;
+    bool swing:1, shoot:1;
 } P_G;
 
 typedef struct Player
@@ -160,7 +168,7 @@ typedef struct Player
     enum PLAYER_STATE state;
     enum PLAYER_FACING facing;
 
-    int mx, my, rx, ry;
+    int mx, my;
 
     short sprint_cdown_timer;
 
@@ -209,10 +217,12 @@ typedef struct Play_Test
     P_G goalie;
     P *c_player; 
 
-    SDL_Rect screen, camera, goal_r, sprint_hud_r, *t_clips;
+    SDL_Rect screen, camera, goal_r, sprint_hud_r, *t_clips, *gk_r;
 
     enum PLAY_TYPE style;
     enum PLAY_STATE state;
+
+    int rx, ry;
 
     unsigned char   GUN_delay, GUN_speed, SCORE_timer,
                     PUCK_freeze_timer,
@@ -264,6 +274,8 @@ void initPlayer(P *p, L l, unsigned char b[]);
 void initPlayerClips(SDL_Rect clips[]);
 void initTiles(P_TEST *pt);
 
+void initGoalkeeper(P_G *g);
+
 void setCamera(SDL_Rect *c, int x, int y);
 void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s);
 
@@ -272,9 +284,11 @@ void resetPlay(P_TEST *pt, P *player);
 
 void resetPlayer(P *player);
 
+void adjustGoalie(float *gky, float ry, float vy);
+
 void updateBulletHits(B_HITS *hits, int bx, int by);
 void updateTopDownShoot(P_TEST *pt, P players[]);
-void updateGame(P_TEST *p, P players[], Mix_Chunk chunks[]);
+void updateGame(P_TEST *p, P players[], Mix_Chunk *chunks[]);
 void updatePlayer(P *p, P_TEST *pt);
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *p);

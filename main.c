@@ -9,7 +9,7 @@ int main(int argc, const char *argv[])
     if (initSdl(&window, &renderer))
     {
         //SDL_SetWindowResizable(window, true); // testing window resize
-        SDL_SetRelativeMouseMode(SDL_ENABLE);
+        //SDL_SetRelativeMouseMode(SDL_ENABLE);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);   // testing alpha
 
         printf("loading font ...\n");
@@ -80,6 +80,7 @@ int main(int argc, const char *argv[])
                     P_TEST play_test;
                     P players[2];
                     SDL_Rect p_clips[12];
+                    SDL_Rect gk_r = {96, 192, 48, 128};
                     int timer, delta;
 
                     play_test.mix_chunks = audio_chunks;
@@ -141,11 +142,9 @@ int main(int argc, const char *argv[])
                     play_test.goal_r.x = 48;
                     play_test.goal_r.y = 224;
 
-                    play_test.goalie.x = 106;
-                    play_test.goalie.y = 256;
-                    play_test.goalie.r.w = 16;
-                    play_test.goalie.r.h = 20;
-                    play_test.goalie.delay = 0;
+                    play_test.gk_r = &gk_r;
+
+                    initGoalkeeper(&play_test.goalie);
 
                     play_test.sprint_hud_r.w = 0;
                     play_test.sprint_hud_r.h = 16;
@@ -166,7 +165,7 @@ int main(int argc, const char *argv[])
                     play_test.level.map = NULL;
                     play_test.level.collision = NULL;
 
-                    play_test.w_focus = true;
+                    play_test.w_focus = false;
 
                     printf("loading map ...\n");
 

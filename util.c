@@ -485,7 +485,7 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     p->vel = STANDARD_VELOCITY;
     p->xvel = 0;
     p->yvel = 0;
-    p->pvel = 3;
+    p->pvel = 2;
 
     p->shoot = false;
     p->sprint = false;
@@ -569,6 +569,18 @@ void initTiles(P_TEST *pt)
     }
 }
 
+void initGoalkeeper(P_G *g)
+{
+    g->x = 106;
+    g->y = 256;
+    g->r.w = 20;
+    g->r.h = 20;
+    g->s_timer = 0;
+    g->shoot = false;
+    g->swing = false;
+    g->state = G_NORMAL;
+}
+
 void setCamera(SDL_Rect *c, int x, int y)
 {
     c->x = x - (c->w >> 1);
@@ -613,10 +625,16 @@ void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
         pt->goal_r.y - pt->camera.y, 
         pt->goal_r.w, 
         pt->goal_r.h
+    }, gkq = {
+        pt->gk_r->x - pt->camera.x, 
+        pt->gk_r->y - pt->camera.y,
+        pt->gk_r->w, pt->gk_r->h
     };
 
     SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
     SDL_RenderFillRect(r, &gq);
+
+    SDL_RenderFillRect(r, &gkq);
     
     if (pt->state == P_SCORE)
     {
@@ -1203,6 +1221,21 @@ void dequeue(unsigned char *q, unsigned char val)
     q[4 - 1] = 0;
 }
 
+void adjustGoalie(float *gky, float ry, float vy)
+{
+    if (ry < *gky)
+    {
+        if ((*gky -= vy) < ry) *gky = ry;
+    }
+    else if (ry > *gky)
+    {
+        if ((*gky += vy) > ry) *gky = ry;
+    }
+
+    if (*gky < 224) *gky = 224;
+    else if (*gky > 288) *gky = 288;
+}
+
 void updateBulletHits(B_HITS *hits, int bx, int by)
 {
     hits->a[hits->index].x = bx;
@@ -1313,7 +1346,7 @@ void updateTopDownShoot(P_TEST *pt, P players[])
                         players[i].pvel = 3;
                         players[i].grab = true;
 
-                        Mix_PlayChannel(-1 ,pt->mix_chunks[S_LOW], 0);
+                        Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
                     }
                 }
             }
@@ -1321,6 +1354,8 @@ void updateTopDownShoot(P_TEST *pt, P players[])
             animatePlayer(&players[i]);
         }
     }
+
+    //update puck
 
     if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 2))
     {
@@ -1442,50 +1477,125 @@ void updateTopDownShoot(P_TEST *pt, P players[])
             else pt->puck.y = py;
         }
 
-        if (!pt->puck.xvel && !pt->puck.yvel)
-            pt->puck.fvel = 0.01f;
-
         pt->puck.r.x = pt->puck.x;
         pt->puck.r.y = pt->puck.y;
 
+        if (!pt->puck.xvel && !pt->puck.yvel)
+            pt->puck.fvel = 0.01f;
+
+        SDL_Rect *r = &pt->puck.r;
+        bool grab = false;
+
+        for (unsigned char i = 0; i < 2; i++) 
+        {    if (players[i].grab) 
+            {
+                r = &players[i].r;
+                grab = true;
+                break;
+            }
+        }
+
+        // update goalkeeper
+
         if (pt->state != P_SCORE && !pt->PUCK_freeze)
         {
-            if (pt->puck.y < pt->goalie.y)
+            if (!pt->puck.xvel && !pt->puck.yvel)
             {
-                float f = 0.85f;
+                if (!grab)
+                {
+                    if (checkCollision(pt->puck.r, pt->goalie.r))
+                    {
+                        // swing/shoot?
+                        // puck goes to center
+                        pt->puck.hit = true;
+                        pt->puck.x = pt->goalie.x + 10;
+                        pt->puck.y = pt->goalie.y;
+                        pt->puck.xvel = 2;
+                        pt->puck.yvel = 0;
 
-                if (pt->puck.x - pt->goalie.x < 100)
-                    f = 1.375f;
-                else if (pt->puck.x - pt->goalie.x < 150)
-                    f = 1.25f;
-                else if (pt->puck.x - pt->goalie.x < 200)
-                    f = 1.15f;
+                        pt->PUCK_freeze = true;
 
-                if ((pt->goalie.y -= f) < pt->puck.r.y)
-                    pt->goalie.y = pt->puck.r.y;
+                        pt->goalie.state = G_NORMAL;
 
-                if (pt->goalie.y < 224) pt->goalie.y = 224;
+                        Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                    }
+                    else 
+                    {
+                        if (pt->goalie.state == G_NORMAL)
+                        {
+                            if (checkCollision(pt->puck.r, *pt->gk_r))
+                            {
+                                pt->goalie.state = G_CLEAR_GOAL;
+                            }
+                            /*
+                            if (pt->puck.y < 304 && pt->puck.y > 208)
+                            {
+                                if (pt->puck.x - pt->goalie.x < 30 
+                                && pt->puck.x - pt->goalie.x > 0)
+                                {
+                                    pt->goalie.state = G_CLEAR_GOAL;
+                                }
+                            }
+                            */
+                        }
+                    }
+                }
+                else pt->goalie.state = G_NORMAL;
             }
-            else if (pt->puck.y > pt->goalie.y)
+
+            if (pt->goalie.state == G_NORMAL)
             {
                 float f = 0.85f;
 
-                if (pt->puck.x - pt->goalie.x < 100)
-                    f = 1.375f;
-                else if (pt->puck.x - pt->goalie.x < 150)
-                    f = 1.25f;
-                else if (pt->puck.x - pt->goalie.x < 200)
-                    f = 1.15f;
+                if (pt->goalie.x > 106) 
+                {
+                    if ((pt->goalie.x -= 1.125f) < 106)
+                        pt->goalie.x = 106;
+                }
+                else if (pt->goalie.x < 106) 
+                {
+                    if ((pt->goalie.x += 1.125f) > 106)
+                        pt->goalie.x = 106;
+                }
 
-                if ((pt->goalie.y += f) > pt->puck.r.y)
-                    pt->goalie.y = pt->puck.r.y;
-                
-                if (pt->goalie.y > 288) pt->goalie.y = 288;
+                if (r->x - pt->goalie.x < 50)
+                    f = 1.75f;
+                else if (r->x - pt->goalie.x < 100)
+                    f = 1.5f;
+                else if (r->x - pt->goalie.x < 150)
+                    f = 1.25f;
+                else if (r->x - pt->goalie.x < 200)
+                    f = 1.125f;
+
+                if (r->y < 224)
+                {
+                    if (pt->goalie.y < 224) pt->goalie.y += f;
+                    else adjustGoalie(&pt->goalie.y, r->y, f);
+                }
+                else if (r->y > 288)
+                {
+                    if (pt->goalie.y > 288) pt->goalie.y -= f;
+                    else adjustGoalie(&pt->goalie.y, r->y, f);
+                }
+                else adjustGoalie(&pt->goalie.y, r->y, f);
+            }
+            else if (pt->goalie.state == G_CLEAR_GOAL)
+            {
+                if ((pt->goalie.x += 1.125f) > pt->puck.x)
+                    pt->goalie.x = pt->puck.x;
+
+                if (pt->puck.y > pt->goalie.y)
+                    pt->goalie.y += 1.125f;
+                else if (pt->puck.y < pt->goalie.y)
+                    pt->goalie.y -= 1.125f;
             }
         }
 
         pt->goalie.r.x = pt->goalie.x - 10;
         pt->goalie.r.y = pt->goalie.y - 10;
+
+        pt->rx = r->x; 
+        pt->ry = r->y;
 
         if (!pt->state == P_SCORE 
         && checkGoal(pt->puck.r, pt->goal_r))
@@ -1494,18 +1604,20 @@ void updateTopDownShoot(P_TEST *pt, P players[])
         }
     }
 
+    // set camera, duh
+
     setCamera(
         &pt->camera, 
         lerp(
             pt->camera.x + (pt->camera.w >> 1), 
-            pt->c_player->rx, 0.08f),
+            pt->rx, 0.08f),
         lerp(
             pt->camera.y + (pt->camera.h >> 1), 
-            pt->c_player->ry, 0.08f)
+            pt->ry, 0.08f)
     );
 }
 
-void updateGame(P_TEST *p, P players[], Mix_Chunk chunks[])
+void updateGame(P_TEST *p, P players[], Mix_Chunk *chunks[])
 {
 
 }
@@ -1581,7 +1693,7 @@ void updatePlayer(P *p, P_TEST *pt)
             p->swing = false;
             p->swing_timer = 0;
             p->vel = p->gvel;
-            p->pvel = 3;
+            p->pvel = 2;
         }
     }
 
@@ -1739,23 +1851,23 @@ void updatePlayer(P *p, P_TEST *pt)
     {
         if (p->xvel > 0)
         {
-            p->xvel -= 0.02f;
+            p->xvel -= 0.05f;
             if (p->xvel < 0) p->xvel = 0;
         }
         else if (p->xvel < 0)
         {
-            p->xvel += 0.02f;
+            p->xvel += 0.05f;
             if (p->xvel > 0) p->xvel = 0;
         }
         
         if (p->yvel > 0)
         {
-            p->yvel -= 0.02f;
+            p->yvel -= 0.05f;
             if (p->yvel < 0) p->yvel = 0;
         }
         else if (p->yvel < 0)
         {
-            p->yvel += 0.02f;
+            p->yvel += 0.05f;
             if (p->yvel > 0) p->yvel = 0;
         }
     }
@@ -1841,9 +1953,6 @@ void updatePlayer(P *p, P_TEST *pt)
         p->crosshair.r.y = p->y - pt->camera.y;
         p->crosshair.show = false;
     }
-
-    p->rx = pt->puck.x; //(int)(p->x + pt->puck.x) >> 1;
-    p->ry = pt->puck.y; //(int)(p->y + pt->puck.y) >> 1;
     
     if (!p->crosshair.show)
     {
@@ -1989,7 +2098,7 @@ void resetPlayer(P *player)
     player->swing = false;
     player->gvel = STANDARD_VELOCITY;
     player->vel = STANDARD_VELOCITY;
-    player->pvel = 3;
+    player->pvel = 2;
     player->sprint = false;
     player->sprint_timer = 0;
     player->sprint_cdown = false;
