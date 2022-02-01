@@ -1,5 +1,7 @@
 #define SDL_MAIN_HANDLED
 
+#define AIM_PI 3.14159265358979323846
+
 #define FPS 60
 #define TICKS 1000 / FPS
 
@@ -18,8 +20,9 @@
 #define F_BSIZE 73
 #define MAP_START 74
 
-#define STANDARD_VELOCITY 2.0F
-#define SPRINT_VELOCITY 3.0F
+#define STANDARD_VELOCITY 2
+#define SPRINT_VELOCITY 3
+#define MAX_SHOOT_VELOCITY 5
 
 #define JOYSTICK_DEADZONE 8000
 
@@ -72,17 +75,20 @@ enum PLAY_STATE
 
 enum PLAYER_STATE 
 {
-    SKATE_NP,
-    SKATE_WP,
-    SHOOT,
-    SWING,
-    THROW
+    PLR_SKATE_NP,
+    PLR_SKATE_WP,
+    PLR_SHOOT,
+    PLR_SWING,
+    PLR_SPRINT,
+    PLR_BLOCK
 };
 
 enum GOALIE_STATE
 {
     G_NORMAL, 
-    G_CLEAR_GOAL
+    G_CLEAR_GOAL,
+    G_SHOOT,
+    G_GRAB
 };
 
 enum PLAYER_FACING
@@ -157,7 +163,7 @@ typedef struct PLAY_GOALIE
     enum GOALIE_STATE state;
     float x, y;
     unsigned char s_timer;
-    bool swing:1, shoot:1;
+    bool swing:1, shoot:1, grab:1;
 } P_G;
 
 typedef struct Player
@@ -182,8 +188,7 @@ typedef struct Player
 
     SDL_Rect r, clip, *t_clips, club_r;
 
-    bool    shoot:1, sprint:1, sprint_cdown:1, 
-            swing:1, grab:1, block:1, spawned:1,
+    bool    sprint:1, sprint_cdown:1, spawned:1,
             bounce:1,
             JOY_use:1, AIM_done:1,
             m_move:1, m_hold:1;
@@ -283,6 +288,7 @@ void setupPlay(P_TEST *pt, P *player);
 void resetPlay(P_TEST *pt, P *player);
 
 void resetPlayer(P *player);
+void movePlayer(P *player, SDL_Rect camera);
 
 void adjustGoalie(float *gky, float ry, float vy);
 
@@ -295,6 +301,8 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *p);
 
 void playTopDownShooter(P_TEST *pt, SDL_Event ev);
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
+
+void shootPuck(Puck *puck, float vel, float x, float y, float angle);
 
 void readInputs(SDL_Renderer *r, P_TEST *pt, SDL_Event event);
 
