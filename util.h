@@ -60,17 +60,11 @@ enum PLAY_SOUND
     S_BEAT
 };
 
-enum PLAY_TYPE
-{
-    P_TOPDOWN,
-    P_TOPDOWN_SHOOT,
-    P_PLATFORM
-};
-
 enum PLAY_STATE
 {
+    P_DROP,
     P_PLAY,
-    P_SCORE
+    P_GOAL
 };
 
 enum PLAYER_STATE 
@@ -219,12 +213,11 @@ typedef struct Play_Test
     L level;
     SDL_Rect gunClips[25];
     Puck puck;
-    P_G goalie;
+    P_G *goalie;
     P *c_player; 
 
-    SDL_Rect screen, camera, goal_r, sprint_hud_r, *t_clips, *gk_r;
+    SDL_Rect screen, camera, *goal_r, sprint_hud_r, *t_clips, *gk_r;
 
-    enum PLAY_TYPE style;
     enum PLAY_STATE state;
 
     int rx, ry;
@@ -287,26 +280,28 @@ void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s)
 void setupPlay(P_TEST *pt, P *player);
 void resetPlay(P_TEST *pt, P *player);
 
-void resetPlayer(P *player);
+void resetPlayer(P *player, int sx, int sy);
+void resetPuck(Puck *p, int mx, int my);
+
 void movePlayer(P *player, SDL_Rect camera);
 
 void adjustGoalie(float *gky, float ry, float vy);
 
 void updateBulletHits(B_HITS *hits, int bx, int by);
-void updateTopDownShoot(P_TEST *pt, P players[]);
-void updateGame(P_TEST *p, P players[], Mix_Chunk *chunks[]);
+
+void updateGame(P_TEST *pt, P players[]);
+void updateGameDrop(P_TEST *pt, P players[]);
+void updateGamePlay(P_TEST *pt, P players[]);
+void updateGameGoal(P_TEST *pt, P players[]);
 void updatePlayer(P *p, P_TEST *pt);
 
-void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *p);
+void inputsGame(P_TEST *pt, SDL_Event ev);
 
-void playTopDownShooter(P_TEST *pt, SDL_Event ev);
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
 
 void shootPuck(Puck *puck, float vel, float x, float y, float angle);
 
-void readInputs(SDL_Renderer *r, P_TEST *pt, SDL_Event event);
-
-void playRender(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[]);
+void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[]);
 
 void renderTiles(SDL_Renderer *r, P_TEST *pt);
 void renderTexture(SDL_Renderer *r, T *t, SDL_Rect *clip, int x, int y, const double angle, const SDL_RendererFlip flip);

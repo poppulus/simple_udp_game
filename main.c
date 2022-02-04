@@ -79,8 +79,8 @@ int main(int argc, const char *argv[])
                     SDL_Event e;
                     P_TEST play_test;
                     P players[2];
-                    SDL_Rect p_clips[12];
-                    SDL_Rect gk_r = {96, 192, 48, 128};
+                    P_G goalie[2];
+                    SDL_Rect p_clips[12], goal_r[2], gk_r[2];
                     int timer, delta;
 
                     play_test.mix_chunks = audio_chunks;
@@ -106,7 +106,6 @@ int main(int argc, const char *argv[])
 
                     initPlayerClips(p_clips);
 
-                    play_test.style = P_TOPDOWN_SHOOT;
                     play_test.GUN_speed = 16;
                     play_test.GUN_delay = 20;
                     
@@ -137,15 +136,37 @@ int main(int argc, const char *argv[])
                         play_test.bullet_hits.a[i].y = 0;
                     }
 
-                    play_test.goal_r.w = 48;
-                    play_test.goal_r.h = 64;
-                    play_test.goal_r.x = 48;
-                    play_test.goal_r.y = 224;
+                    goal_r[0].x = 96;
+                    goal_r[0].y = 112;
+                    goal_r[0].w = 48;
+                    goal_r[0].h = 48;
 
-                    play_test.gk_r = &gk_r;
+                    goal_r[1].x = 752;
+                    goal_r[1].y = 112;
+                    goal_r[1].w = 48;
+                    goal_r[1].h = 48;
 
-                    initGoalkeeper(&play_test.goalie);
+                    gk_r[0].x = 144;
+                    gk_r[0].y = 80;
+                    gk_r[0].w = 48;
+                    gk_r[0].h = 112;
 
+                    gk_r[1].x = 704;
+                    gk_r[1].y = 80;
+                    gk_r[1].w = 48;
+                    gk_r[1].h = 112;
+
+                    play_test.goal_r = goal_r;
+                    play_test.gk_r = gk_r;
+
+                    for (unsigned char i = 0; i < 2; i++)
+                    {
+                        initGoalkeeper(&goalie[i]);
+                        if (i == 1) goalie[i].x = 742;
+                    }
+
+                    play_test.goalie = goalie;
+                    
                     play_test.sprint_hud_r.w = 0;
                     play_test.sprint_hud_r.h = 16;
                     play_test.sprint_hud_r.x = 300;
@@ -169,7 +190,7 @@ int main(int argc, const char *argv[])
 
                     printf("loading map ...\n");
 
-                    if (loadMap(renderer, &play_test, "maps/placeholder"))
+                    if (loadMap(renderer, &play_test, "maps/pucko"))
                     {
                         initLevel(&play_test);
                         initMap(&play_test);
@@ -199,9 +220,9 @@ int main(int argc, const char *argv[])
                             SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
                             SDL_RenderClear(renderer);
 
-                            playTopDownShooter(&play_test, e);
-                            updateTopDownShoot(&play_test, players);
-                            playRender(renderer, font, &play_test, players);
+                            inputsGame(&play_test, e);
+                            updateGame(&play_test, players);
+                            renderGame(renderer, font, &play_test, players);
                             
                             SDL_RenderPresent(renderer);
 
