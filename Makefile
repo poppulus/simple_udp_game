@@ -13,16 +13,16 @@ ifeq ($(uname_S), Linux)
 endif
 
 #OBJS specifies which files to compile as part of the project
-OBJS = main.c util.c SDL_FontCache.c
+OBJS = main.c util.c SDL_FontCache.c net.c
 
 #CC specifies which compiler we're using
 CC = gcc
 
 #COMPILER_FLAGS specifies the additional compilation options we're using
-COMPILER_FLAGS = -g
+COMPILER_FLAGS = -Wall -g
 
 #LINKER_FLAGS specifies the libraries we're linking against
-LINKER_FLAGS = -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer
+LINKER_FLAGS = -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lSDL2_net
 
 #OBJ_NAME specifies the name of our exectuable
 OBJ_NAME = puck

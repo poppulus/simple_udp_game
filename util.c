@@ -2,21 +2,23 @@
 
 void closeSdl(SDL_Window **w, SDL_Renderer **r, Mix_Chunk *m[])
 {
+    printf("free window\n");
+
     if (*w != NULL)
     {
         SDL_DestroyWindow(*w);
         *w = NULL;
     }
 
-    printf("free window\n");
-    
+    printf("free renderer\n");
+
     if (*r != NULL)
     {
         SDL_DestroyRenderer(*r);
         *r = NULL;
     }
 
-    printf("free renderer\n");
+    printf("free audio chunks\n");
 
     for (int i = 0; i < 2; i++)
     {
@@ -26,9 +28,7 @@ void closeSdl(SDL_Window **w, SDL_Renderer **r, Mix_Chunk *m[])
             m[i] = NULL;
         }
     }
-
-    printf("free audio chunks\n");
-
+    
     Mix_Quit();
     IMG_Quit();
     SDL_Quit();
@@ -90,6 +90,14 @@ bool checkCollision(SDL_Rect a, SDL_Rect b)
 
     //If none of the sides from A are outside B
     return true;
+}
+
+bool checkMousePosition(int x, int y, SDL_Rect r)
+{
+    if ((x > r.x && x < r.x + r.w) 
+    && (y > r.y && y < r.y + r.h)) return true;
+
+    return false;
 }
 
 bool checkPlayerPosition(int x, int y, unsigned char map[], int msize)
@@ -192,6 +200,48 @@ bool initSdl(SDL_Window **w, SDL_Renderer **r)
     return success;
 }
 
+bool initAudio(Mix_Chunk *chunks[])
+{
+    bool aok = true;
+
+    for (int i = 0; i < AUDIO_SAMPLE_COUNT; i++) 
+    {
+        chunks[i] = NULL;
+
+        switch (i)
+        {
+            case S_LOW:
+                if (!(chunks[i] = Mix_LoadWAV("assets/sound/low.wav")))
+                    aok = false;
+            break;
+            case S_MEDIUM:
+                if (!(chunks[i] = Mix_LoadWAV("assets/sound/medium.wav")))
+                    aok = false;
+            break;
+            case S_HIGH:
+                if (!(chunks[i] = Mix_LoadWAV("assets/sound/high.wav")))
+                    aok = false;
+            break;
+            case S_SCRATCH:
+                if (!(chunks[i] = Mix_LoadWAV("assets/sound/scratch.wav")))
+                    aok = false;
+            break;
+            case S_BEAT:
+                if (!(chunks[i] = Mix_LoadWAV("assets/sound/beat.wav")))
+                    aok = false;
+            break;
+        }
+
+        if (!aok)
+        {
+            printf("Failed to load sound effect! SDL_mixer Error: %s\n", Mix_GetError());
+            break;
+        }
+    }
+
+    return aok;
+}
+
 bool initTexture(SDL_Renderer *r, T *texture, const char path[])
 {
     Uint32 f;
@@ -227,7 +277,7 @@ bool initTextureMap(SDL_Renderer *r, P_TEST *pt, char *str)
     Uint32 format;  // can we use this?
     int access, w, h;
 
-    printf("init texture %s, %d\n", str, pt->texture.t);
+    printf("init texture %s\n", str);
 
     pt->texture.t = loadTexture(r, str);
 
@@ -303,7 +353,7 @@ bool loadMap(SDL_Renderer *r, P_TEST *pt, char *str)
         if (n > 0)
         {
             char n_str[64];
-            strncpy(n_str, pt->f_buffer, 64);
+            memcpy(n_str, pt->f_buffer, 64);
 
             pt->t_n_size = pt->f_buffer[F_TILE];
 
@@ -432,6 +482,7 @@ void initMap(P_TEST *pt)
     else
     {
         free(pt->level.map);
+        pt->level.map = NULL;
         pt->level.map = calloc(pt->level.t_map_pieces << 1, 1);
     }
 
@@ -440,6 +491,7 @@ void initMap(P_TEST *pt)
     else
     {
         free(pt->level.collision);
+        pt->level.collision = NULL;
         pt->level.collision = calloc(pt->level.t_map_pieces, 1);
     }
     
@@ -462,6 +514,8 @@ void initPlayer(P *p, L level, unsigned char buffer[])
 
     for (int i = 0; i < 4; i++)
         p->input_q[i] = 0;
+
+    p->id = 0;
 
     p->state = PLR_SKATE_NP;
 
@@ -533,6 +587,24 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     p->r.y = p->my << level.t_bit_size;
 }
 
+void initButtons(SDL_Rect *btns)
+{
+    btns[0].w = 320;
+    btns[0].h = 40;
+    btns[0].x = (W_WIDTH >> 1) - 160;
+    btns[0].y = (W_HEIGHT >> 1) - 80;
+
+    btns[1].w = 320;
+    btns[1].h = 40;
+    btns[1].x = (W_WIDTH >> 1) - 160;
+    btns[1].y = (W_HEIGHT >> 1);
+
+    btns[2].w = 320;
+    btns[2].h = 40;
+    btns[2].x = (W_WIDTH >> 1) - 160;
+    btns[2].y = (W_HEIGHT >> 1) + 80;
+}
+
 void initPlayerClips(SDL_Rect clips[])
 {
     int y = 0;
@@ -577,7 +649,7 @@ void initGoalkeeper(P_G *g)
     g->grab = false;
     g->shoot = false;
     g->swing = false;
-    g->state = G_NORMAL;
+    g->state = GK_NORMAL;
 }
 
 void setCamera(SDL_Rect *c, int x, int y)
@@ -779,13 +851,141 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
     SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
     SDL_RenderFillRect(r, &pq);
 
-    if (pt->state == P_GOAL)
+    if (pt->p_state == P_GOAL)
     {
         FC_DrawColor(
             f, r, 
             320, 20, 
             FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
             "SCORE!");
+    }
+
+    if (pt->g_state == G_MENU)
+    {
+        if (!pt->is_net)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+                SDL_RenderFillRect(r, &pt->buttons[i]);
+
+                SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+                SDL_RenderDrawRect(r, &pt->buttons[i]);
+
+                switch (i)
+                {
+                    case 0:
+                        FC_Draw(
+                            f, r, 
+                            (pt->buttons[i].x + 128), 
+                            pt->buttons[i].y + 10, 
+                            "Host");
+                    break;
+                    case 1:
+                        FC_Draw(
+                            f, r, 
+                            (pt->buttons[i].x + 128), 
+                            pt->buttons[i].y + 10, 
+                            "Join");
+                    break;
+                    case 2:
+                        FC_Draw(
+                            f, r, 
+                            (pt->buttons[i].x + 128), 
+                            pt->buttons[i].y + 10, 
+                            "Exit");
+                    break;
+                }
+            }
+        }
+        else
+        {   
+            for (i = 1; i < 3; i++)
+            {
+                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+                SDL_RenderFillRect(r, &pt->buttons[i]);
+
+                SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+                SDL_RenderDrawRect(r, &pt->buttons[i]);
+
+                switch (i)
+                {
+                    case 1:
+                        FC_Draw(
+                            f, r, 
+                            (pt->buttons[1].x + 88), 
+                            pt->buttons[1].y + 10, 
+                            "Disconnect"); 
+                    break;
+                    case 2:
+                        FC_Draw(
+                            f, r, 
+                            (pt->buttons[2].x + 128), 
+                            pt->buttons[2].y + 10, 
+                            "Exit");
+                    break;
+                }
+            }
+        }
+    }
+    else if (pt->g_state == G_JOIN || pt->g_state == G_HOST)
+    {
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+        SDL_RenderFillRect(r, &pt->buttons[1]);
+
+        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+        SDL_RenderDrawRect(r, &pt->buttons[1]);
+
+        FC_Draw(
+            f, r, 
+            pt->buttons[1].x, 
+            pt->buttons[1].y + 10, 
+            pt->input_field.string);
+
+        SDL_RenderDrawLine(
+            r, 
+            pt->buttons[1].x + (pt->input_field.str_pointer << 4), 
+            pt->buttons[1].y, 
+            pt->buttons[1].x + (pt->input_field.str_pointer << 4),
+            pt->buttons[1].y + pt->buttons[1].h);
+    }
+    else if (pt->g_state == G_HOSTING)
+    {
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+        SDL_RenderFillRect(r, &pt->buttons[1]);
+
+        FC_Draw(
+            f, r, 
+            pt->buttons[1].x, 
+            pt->buttons[1].y + 10, 
+            "Hosting setup ...");
+    }
+    else if (pt->g_state == G_JOINING)
+    {
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+        SDL_RenderFillRect(r, &pt->buttons[1]);
+
+        FC_Draw(
+            f, r, 
+            pt->buttons[1].x, 
+            pt->buttons[1].y + 10, 
+            "Joining setup ...");
+    }
+}
+
+void renderClientGame(SDL_Renderer *r, SDL_Rect cam, P players[])
+{
+    for (unsigned char i = 0; i < MAX_NET_USERS; i++)
+    {
+        if (players[i].spawned)
+        {
+            renderPlayer(
+                r, 
+                players[i].texture->t,
+                &players[i], 
+                cam.x, 
+                cam.y);
+        }
     }
 }
 
@@ -859,9 +1059,18 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                     switch (ev.key.keysym.sym)
                     {
                         case SDLK_ESCAPE: 
-                            pt->w_focus = !pt->w_focus;
-                            if (pt->w_focus) SDL_SetRelativeMouseMode(SDL_ENABLE);
-                            else SDL_SetRelativeMouseMode(SDL_DISABLE);
+                            if (pt->g_state == G_PLAY)
+                            {
+                                SDL_SetRelativeMouseMode(SDL_DISABLE);
+                                pt->w_focus = false;
+                                pt->g_state = G_MENU;
+                            }
+                            else if (pt->g_state == G_MENU)
+                            {
+                                SDL_SetRelativeMouseMode(SDL_ENABLE);
+                                pt->w_focus = true;
+                                pt->g_state = G_PLAY;
+                            }
                         break;
                         case SDLK_KP_ENTER:
                         case SDLK_RETURN:
@@ -925,20 +1134,55 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                 }
             break;
             case SDL_MOUSEBUTTONDOWN:
-                if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
+                if (pt->g_state == G_PLAY)
                 {
-                    switch (pt->c_player->state)
+                    if (ev.button.button == SDL_BUTTON_LEFT)
                     {
-                        case PLR_SKATE_NP:
-                            if (!pt->c_player->m_hold)
-                            {
-                                pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                pt->c_player->state = PLR_SWING;
-                                Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
-                            }
-                        break;
+                        switch (pt->c_player->state)
+                        {
+                            case PLR_SKATE_NP:
+                                if (!pt->c_player->m_hold)
+                                {
+                                    pt->c_player->vel -= pt->c_player->gvel * 0.25f;
+                                    pt->c_player->state = PLR_SWING;
+                                    Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                                }
+                            break;
+                            default: break;
+                        }
+                        pt->c_player->m_hold = true;
                     }
-                    pt->c_player->m_hold = true;
+                }
+                else if (pt->g_state == G_MENU)
+                {
+                    if (ev.button.button == SDL_BUTTON_LEFT)
+                    {
+                        for (int i = 0; i < 3; i++)
+                        {
+                            if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[i]))
+                            {
+                                switch (i)
+                                {
+                                    case 0: if (!pt->is_net) pt->g_state = G_HOST; break;
+                                    case 1: 
+                                        if (!pt->is_net) pt->g_state = G_JOIN; 
+                                        else 
+                                        {
+                                            // disconnect from net here
+                                            pt->network.pquit = true;
+                                            closeNet(&pt->network);
+                                            pt->is_net = false;
+                                        }
+                                    break;
+                                    case 2: 
+                                        pt->quit = true; 
+                                        pt->is_net = false;
+                                    break;
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             break;
             case SDL_MOUSEBUTTONUP:
@@ -963,6 +1207,7 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                                 }
                             }
                         break;
+                        default: break;
                     }
                     pt->c_player->m_hold = false;
                 }
@@ -1147,6 +1392,192 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
     }
 }
 
+void inputsJoin(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        switch (ev.type)
+        {
+            case SDL_QUIT:
+                pt->quit = true;
+            break;
+            case SDL_TEXTINPUT:
+                switch (ev.text.text[0])
+                {
+                    case ':':
+                    case '.':
+                    case SDLK_0 ... SDLK_9:
+                        if (pt->input_field.str_len < 64)
+                        {
+                            for (unsigned char i = pt->input_field.str_len; 
+                            i > pt->input_field.str_pointer; 
+                            i--)
+                            {
+                                pt->input_field.string[i] = pt->input_field.string[i - 1];
+                            }
+                            
+                            pt->input_field.string[pt->input_field.str_pointer] = ev.text.text[0];
+                            pt->input_field.str_pointer++;
+                            pt->input_field.str_len = strlen(pt->input_field.string);
+                        }
+                    break;
+                }
+            break;
+            case SDL_KEYDOWN:
+                switch (ev.key.keysym.sym)
+                {
+                    case SDLK_ESCAPE:
+                        pt->g_state = G_MENU;
+                    break;
+                    case SDLK_BACKSPACE:
+                        if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
+                        {
+                            pt->input_field.string[pt->input_field.str_pointer - 1] = 0;
+                            pt->input_field.str_pointer--;
+
+                            for (unsigned char i = pt->input_field.str_pointer; 
+                            i < pt->input_field.str_len - 1; 
+                            i++)
+                            {
+                                pt->input_field.string[i] = pt->input_field.string[i + 1];
+                            }
+
+                            pt->input_field.string[pt->input_field.str_len - 1] = 0;
+                            pt->input_field.str_len = strlen(pt->input_field.string);
+                        }
+                    break;
+                    case SDLK_LEFT:
+                        if (--pt->input_field.str_pointer < 0) 
+                            pt->input_field.str_pointer = 0;
+                    break;
+                    case SDLK_RIGHT:
+                        if (++pt->input_field.str_pointer > pt->input_field.str_len) 
+                            pt->input_field.str_pointer = pt->input_field.str_len;
+                    break;
+                    case SDLK_KP_ENTER:
+                    case SDLK_RETURN:
+                    case SDLK_RETURN2:
+                        if (!ev.key.repeat)
+                        {
+                            if (pt->input_field.str_len > 8)
+                            {
+                                pt->g_state = G_JOINING;
+                                if (startNetClient(&pt->network, pt->input_field.string))
+                                {
+                                    pt->is_net = true;
+                                    
+                                    for (int i = 0; i < 2; i++) 
+                                        resetPlayer(&pt->players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
+
+                                    pt->players[0].id = pt->network.localuser.id;
+                                    pt->players[0].spawned = true;
+
+                                    pt->g_state = G_PLAY;
+                                }
+                            }
+                            resetInputField(&pt->input_field);
+                        }
+                    break;
+                }
+            break;
+        }
+    }
+}
+
+void inputsHost(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        switch (ev.type)
+        {
+            case SDL_QUIT:
+                pt->quit = true;
+            break;
+            case SDL_TEXTINPUT:
+                if (pt->input_field.str_len < 5)
+                {
+                    switch (ev.text.text[0])
+                    {
+                        case SDLK_0 ... SDLK_9:
+                            for (unsigned char i = pt->input_field.str_len; 
+                            i > pt->input_field.str_pointer; 
+                            i--)
+                            {
+                                pt->input_field.string[i] = pt->input_field.string[i - 1];
+                            }
+                            
+                            pt->input_field.string[pt->input_field.str_pointer] = ev.text.text[0];
+                            pt->input_field.str_pointer++;
+                            pt->input_field.str_len = strlen(pt->input_field.string);
+                        break;
+                    }
+                }
+            break;
+            case SDL_KEYDOWN:
+                switch (ev.key.keysym.sym)
+                {
+                    case SDLK_ESCAPE:
+                        pt->g_state = G_MENU;
+                    break;
+                    case SDLK_BACKSPACE:
+                        if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
+                        {
+                            pt->input_field.string[pt->input_field.str_pointer - 1] = 0;
+                            pt->input_field.str_pointer--;
+
+                            for (unsigned char i = pt->input_field.str_pointer; 
+                            i < pt->input_field.str_len - 1; 
+                            i++)
+                            {
+                                pt->input_field.string[i] = pt->input_field.string[i + 1];
+                            }
+
+                            pt->input_field.string[pt->input_field.str_len - 1] = 0;
+                            pt->input_field.str_len = strlen(pt->input_field.string);
+                        }
+                    break;
+                    case SDLK_LEFT:
+                        if (--pt->input_field.str_pointer < 0) 
+                            pt->input_field.str_pointer = 0;
+                    break;
+                    case SDLK_RIGHT:
+                        if (++pt->input_field.str_pointer > pt->input_field.str_len) 
+                            pt->input_field.str_pointer = pt->input_field.str_len;
+                    break;
+                    case SDLK_KP_ENTER:
+                    case SDLK_RETURN:
+                    case SDLK_RETURN2:
+                        if (!ev.key.repeat)
+                        {
+                            if (pt->input_field.str_len > 0)
+                            {
+                                pt->g_state = G_HOSTING;
+
+                                // setup host connection
+                                if (startNetHost(&pt->network, atoi(pt->input_field.string)))
+                                {
+                                    pt->is_net = true;
+
+                                    resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
+
+                                    for (int i = 0; i < 2; i++) 
+                                        resetPlayer(&pt->players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
+
+                                    pt->players[0].id = 1;
+                                    pt->players[0].spawned = true;
+
+                                    pt->g_state = G_PLAY;
+                                }
+                            }
+                            resetInputField(&pt->input_field);
+                        }
+                    break;
+                }
+            break;
+        }
+    }
+}
+
 void shootPuck(Puck *puck, float vel, float x, float y, float angle)
 {
     puck->x = x;
@@ -1242,21 +1673,52 @@ void updateBulletHits(B_HITS *hits, int bx, int by)
 
 void updateGame(P_TEST *pt, P players[])
 {
-    switch (pt->state)
+    if (pt->is_net)
     {
-        case P_DROP:
-            updateGameDrop(pt, players);
-        break;
-        case P_PLAY:
-            updateGamePlay(pt, players);
-        break;
-        case P_GOAL:
-            updateGameGoal(pt, players);
-        break;
+        if (pt->network.localuser.id > 0)
+        {
+            pt->puck.x = pt->network.puck.x;
+            pt->puck.y = pt->network.puck.y;
+
+            updateClientGame(pt, players);
+        }
+        else if (!pt->network.localuser.id)
+        {
+            updateHostGame(pt, players);
+
+            pt->network.puck.x = pt->puck.x;
+            pt->network.puck.y = pt->puck.y;
+        }
+
+        pt->rx = pt->puck.r.x + (pt->puck.r.w >> 1);
+        pt->ry = pt->puck.r.y + (pt->puck.r.h >> 1);
+
+        if (pt->network.localplayer != NULL)
+        {
+            pt->network.localplayer->x = players[0].x;
+            pt->network.localplayer->y = players[0].y;
+
+            for (unsigned char i = 1; i < MAX_NET_USERS; i++)
+            {
+                if (pt->network.localplayer->id != pt->network.players_net[i].id)
+                {
+                    players[i].x = pt->network.players_net[i].x;
+                    players[i].y = pt->network.players_net[i].y;
+                }
+            }
+        }
+        
+        if (pt->network.lost)
+        {
+            // disconnect from net here
+            pt->network.pquit = true;
+            closeNet(&pt->network);
+            pt->is_net = false;
+        }
     }
+    else updateLocalGame(pt, players);
 
     // set camera, duh
-
     setCamera(
         &pt->camera, 
         lerp(
@@ -1267,13 +1729,11 @@ void updateGame(P_TEST *pt, P players[])
             pt->ry, 0.08f)
     );
 
-    if (pt->camera.x < 0) 
-        pt->camera.x = 0;
+    if (pt->camera.x < 0) pt->camera.x = 0;
     else if ((pt->camera.x + W_WIDTH) > pt->level.r.w) 
         pt->camera.x = pt->level.r.w - W_WIDTH;
 
-    if (pt->camera.y > 0) 
-        pt->camera.y = 0;
+    if (pt->camera.y > 0) pt->camera.y = 0;
     else if ((pt->camera.y + W_HEIGHT) < pt->level.r.h) 
         pt->camera.y = pt->level.r.h - W_HEIGHT;
 }
@@ -1348,7 +1808,7 @@ void updateGameDrop(P_TEST *pt, P players[])
 
                     pt->PUCK_freeze = true;
 
-                    pt->state = P_PLAY;
+                    pt->p_state = P_PLAY;
 
                     Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
                 }
@@ -1436,6 +1896,7 @@ void updateGamePlay(P_TEST *pt, P players[])
                         }
                     }
                 break;
+                default: break;
             }
 
             animatePlayer(&players[i]);
@@ -1451,7 +1912,7 @@ void updateGamePlay(P_TEST *pt, P players[])
         pt->PUCK_freeze_timer = 0;
     }
 
-    if (pt->puck.hit && (pt->puck.hit_counter++ > 16)) 
+    if (pt->puck.hit && (++pt->puck.hit_counter > 16)) 
     {
         pt->puck.hit = false;
         pt->puck.hit_counter = 0;
@@ -1603,24 +2064,24 @@ void updateGamePlay(P_TEST *pt, P players[])
 
         // update goalkeepers
 
-        if (pt->state != P_GOAL && !pt->PUCK_freeze)
+        if (pt->p_state != P_GOAL && !pt->PUCK_freeze)
         {
             for (unsigned char g = 0; g < 2; g++)
             {
                 switch (pt->goalie[g].state)
                 {
-                    case G_NORMAL:
+                    case GK_NORMAL:
                         if (!pt->puck.xvel && !pt->puck.yvel && !grab && !pt->puck.hit)
                         {
                             if (g == 0)
                             {
                                 if (checkCollision(pt->puck.r, pt->gk_r[0]))
-                                    pt->goalie[g].state = G_CLEAR_GOAL;
+                                    pt->goalie[g].state = GK_CLEAR_GOAL;
                             }
                             else 
                             {
                                 if (checkCollision(pt->puck.r, pt->gk_r[1]))
-                                    pt->goalie[g].state = G_CLEAR_GOAL;
+                                    pt->goalie[g].state = GK_CLEAR_GOAL;
                             }
                         }
 
@@ -1679,7 +2140,7 @@ void updateGamePlay(P_TEST *pt, P players[])
                         }
                         else adjustGoalie(&pt->goalie[g].y, r->y, f);
                     break;
-                    case G_CLEAR_GOAL:
+                    case GK_CLEAR_GOAL:
                         if (!grab)
                         {
                             if (checkCollision(pt->puck.r, pt->goalie[g].r))
@@ -1688,7 +2149,7 @@ void updateGamePlay(P_TEST *pt, P players[])
                                 pt->puck.y = pt->goalie[g].y;
 
                                 pt->goalie[g].grab = true;
-                                pt->goalie[g].state = G_GRAB;
+                                pt->goalie[g].state = GK_GRAB;
                             }
 
                             if (g == 0)
@@ -1708,25 +2169,25 @@ void updateGamePlay(P_TEST *pt, P players[])
                                 }
                             }
                         }
-                        else pt->goalie[g].state = G_NORMAL;
+                        else pt->goalie[g].state = GK_NORMAL;
 
                         if (pt->puck.y > pt->goalie[g].y)
                             pt->goalie[g].y += 1.125f;
                         else if (pt->puck.y < pt->goalie[g].y)
                             pt->goalie[g].y -= 1.125f;
                     break;
-                    case G_SHOOT:
+                    case GK_SHOOT:
                         if (pt->goalie[g].shoot)
                         {
                             if (++pt->goalie[g].s_timer > 10)
                             {
                                 pt->goalie[g].s_timer = 0;
                                 pt->goalie[g].shoot = false;
-                                pt->goalie[g].state = G_NORMAL;
+                                pt->goalie[g].state = GK_NORMAL;
                             }
                         }
                     break;
-                    case G_GRAB:
+                    case GK_GRAB:
                         // swing/shoot?
                         // puck goes to center
                         if (++pt->goalie[g].s_timer > 10)
@@ -1741,7 +2202,7 @@ void updateGamePlay(P_TEST *pt, P players[])
                             pt->goalie[g].shoot = true;
                             pt->goalie[g].grab = false;
 
-                            pt->goalie[g].state = G_SHOOT;
+                            pt->goalie[g].state = GK_SHOOT;
 
                             Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
                         }
@@ -1756,7 +2217,7 @@ void updateGamePlay(P_TEST *pt, P players[])
         for (unsigned char i = 0; i < 2; i++)
         {
             if (checkGoal(pt->puck.r, pt->goal_r[i]))
-                pt->state = P_GOAL;
+                pt->p_state = P_GOAL;
         }
 
         pt->rx = r->x;
@@ -1871,7 +2332,7 @@ void updateGameGoal(P_TEST *pt, P players[])
 
         pt->SCORE_timer = 0;
 
-        pt->state = P_DROP;
+        pt->p_state = P_DROP;
     }
 }
 
@@ -2039,6 +2500,7 @@ void updatePlayer(P *p, P_TEST *pt)
                 p->r.h = 20;
             }
         break;
+        default: break;
     }
 
     float rx = AIM_RADIUS * SDL_cos(p->AIM_angle), 
@@ -2240,6 +2702,82 @@ void updatePlayer(P *p, P_TEST *pt)
     }
 }
 
+void updateLocalGame(P_TEST *pt, P players[])
+{
+    switch (pt->p_state)
+    {
+        case P_DROP:
+            updateGameDrop(pt, players);
+        break;
+        case P_PLAY:
+            updateGamePlay(pt, players);
+        break;
+        case P_GOAL:
+            updateGameGoal(pt, players);
+        break;
+    }
+}
+
+void updateHostGame(P_TEST *pt, P plrs[])
+{
+    updatePlayer(&plrs[0], pt);
+
+    if (!plrs[pt->network.numplayers - 1].id)
+    {
+        if (pt->network.players_net[pt->network.numplayers - 1].id)
+        {
+            plrs[pt->network.numplayers - 1].id = (
+                pt->network.players_net[pt->network.numplayers - 1].id);
+
+            plrs[pt->network.numplayers - 1].spawned = true;
+        }
+    }
+
+    for (unsigned char i = 1; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            for (unsigned char j = 1; j < MAX_NET_USERS; j++)
+            {
+                if (plrs[i].id == pt->network.players_net[j].id)
+                {
+                    plrs[i].x = pt->network.players_net[j].x;
+                    plrs[i].y = pt->network.players_net[j].y;
+                    //updatePlayer(&plrs[i], pt);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void updateClientGame(P_TEST *pt, P plrs[])
+{
+    updatePlayer(&plrs[0], pt);
+
+    if (!plrs[pt->network.numplayers - 1].id)
+    {
+        
+    }
+
+    for (unsigned char i = 1; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            for (unsigned char j = 0; j < pt->network.numplayers; j++)
+            {
+                if ((plrs[i].id == pt->network.players_net[j].id) 
+                && (pt->network.players_net[j].id != pt->network.localplayer->id))
+                {
+                    plrs[i].x = pt->network.players_net[j].x;
+                    plrs[i].y = pt->network.players_net[j].y;
+                    break;
+                }
+            }
+        }
+    }
+}
+
 void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy)
 {
     // ONLY for testing
@@ -2294,12 +2832,13 @@ void renderPlayTiles(SDL_Renderer *renderer, P_TEST pt)
 
 void setupPlay(P_TEST *pt, P *player)
 {
+    pt->players = player;
     pt->c_player = player;
 
     pt->camera.x = pt->c_player->x - (pt->camera.w >> 1);
     pt->camera.y = pt->c_player->y - (pt->camera.h >> 1);
     
-    pt->state = P_PLAY;
+    pt->p_state = P_PLAY;
 
     pt->c_player->club_r.x = pt->c_player->x - 8 + pt->c_player->AIM_radx;
     pt->c_player->club_r.y = pt->c_player->y - 8 + pt->c_player->AIM_rady;
@@ -2319,6 +2858,97 @@ void setupPlay(P_TEST *pt, P *player)
 
     pt->c_player->r.x = pt->c_player->x - pt->camera.x;
     pt->c_player->r.y = pt->c_player->y - pt->camera.y;
+
+    pt->g_state = G_PLAY;
+}
+
+void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep)
+{
+    pt->is_net = false;
+
+    pt->PUCK_freeze = false;
+    pt->PUCK_freeze_timer = 0;
+
+    for (unsigned char i = 0; i < 64; i++)
+        pt->input_field.string[i] = 0;
+
+    pt->input_field.str_pointer = 0;
+    pt->input_field.str_len = 0;
+
+    /*
+    int y = 0;
+    for (int i = 0; i < 25; i++)
+    {
+        pt->gunClips[i].w = 17;
+        pt->gunClips[i].h = 19;
+        pt->gunClips[i].x = ((i % 4) << 4) + 1;
+        pt->gunClips[i].y = (y << 4) + 2;
+
+        if ((i % 4) == 3) y++;
+    }
+
+    play_test.bullet_hits.index = 0;
+
+    for (int i = 0; i < 30; i++)
+    {
+        play_test.bullet_hits.a[i].used = false;
+        play_test.bullet_hits.a[i].x = 0;
+        play_test.bullet_hits.a[i].y = 0;
+    }
+    */
+
+    pt->goal_r = gr;
+    pt->gk_r = gkr;
+    pt->goalie = gkeep;
+    
+    pt->sprint_hud_r.w = 0;
+    pt->sprint_hud_r.h = 16;
+    pt->sprint_hud_r.x = 300;
+    pt->sprint_hud_r.y = W_HEIGHT - 26;
+
+    pt->screen.w = W_WIDTH;
+    pt->screen.h = W_HEIGHT;
+    pt->screen.x = 0;
+    pt->screen.y = 0;
+
+    pt->camera.w = W_WIDTH;
+    pt->camera.h = W_HEIGHT;
+    pt->camera.x = 0;
+    pt->camera.y = 0;
+
+    pt->w_focus = false;
+}
+
+void setupGoals(SDL_Rect *r)
+{
+    r[0].x = 96;
+    r[0].y = 112;
+    r[0].w = 48;
+    r[0].h = 48;
+
+    r[1].x = 752;
+    r[1].y = 112;
+    r[1].w = 48;
+    r[1].h = 48;
+}
+
+void setupGoalKeepers(SDL_Rect *r, P_G *goalie)
+{
+    r[0].x = 144;
+    r[0].y = 80;
+    r[0].w = 48;
+    r[0].h = 112;
+
+    r[1].x = 704;
+    r[1].y = 80;
+    r[1].w = 48;
+    r[1].h = 112;
+
+    for (unsigned char i = 0; i < 2; i++)
+    {
+        initGoalkeeper(&goalie[i]);
+        if (i == 1) goalie[i].x = 742;
+    }
 }
 
 void resetPlay(P_TEST *pt, P *player)
@@ -2366,6 +2996,7 @@ void resetPlayer(P *p, int sx, int sy)
     p->m_hold = false;
     p->m_move = false;
     p->bounce = false;
+    p->spawned = false;
 
     p->sprint_timer = 0;
     p->sprint_cdown_timer = 0;
@@ -2375,11 +3006,10 @@ void resetPlayer(P *p, int sx, int sy)
     p->facing = 0;
     p->a_index = 0;
 
-    p->x = sx;
-    p->y = sy;
-
-    p->r.x = sx;
-    p->r.y = sx;
+    p->x = p->mx << 4;
+    p->y = p->my << 4;
+    p->r.x = p->x;
+    p->r.y = p->y;
 
     p->club_r.x = p->x - 8 + p->AIM_radx;
     p->club_r.y = p->y - 8 + p->AIM_rady;
@@ -2397,6 +3027,15 @@ void resetPuck(Puck *p, int mx, int my)
     p->fvely = 0.01f;
     p->hit = false;
     p->hit_counter = 0;
+}
+
+void resetInputField(I_FIELD *input)
+{
+    for (unsigned char i = 0; i < 64; i++)
+        input->string[i] = 0;
+
+    input->str_len = 0;
+    input->str_pointer = 0;
 }
 
 void movePlayer(P *p, SDL_Rect camera)
