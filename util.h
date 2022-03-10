@@ -310,6 +310,9 @@ void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep);
 void setupGoals(SDL_Rect *r);
 void setupGoalKeepers(SDL_Rect *r, P_G *gk);
 
+void addPlayerGame(P *p, unsigned char id, int x, int y);
+void removePlayerGame(P *p);
+
 void resetPlay(P_TEST *pt, P *player);
 void resetPlayer(P *player, int sx, int sy);
 void resetPuck(Puck *p, int mx, int my);

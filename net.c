@@ -1,7 +1,9 @@
 #include "net.h"
 
 void closeNet(NET *net)
-{   
+{
+    net->pquit = 1;
+    net->lost = 1;
     printf("NET: wait on thread if any\n");
     // wait on thread and free
     if (net->thread != NULL) 
@@ -41,6 +43,18 @@ void closeNet(NET *net)
         free(net->players_net);
         net->players_net = NULL;
     }
+    printf("NET: reset local user\n");
+    net->localplayer = NULL;
+    net->localuser.address.host = 0;
+    net->localuser.address.port = 0;
+    net->localuser.status = 0;
+    net->localuser.timeout = 0;
+    net->localuser.id = 0;
+    printf("NET: reset other values\n");
+    net->numplayers = 0;
+    net->numusers = 0;
+    net->join = 0;
+    net->left = 0;
     printf("NET: exit\n");
     SDLNet_Quit();
 }
@@ -90,6 +104,11 @@ int startNetClient(NET *net, const char *string)
 
         net->players_net = calloc(MAX_NET_USERS, sizeof(P_NET));
 
+        memset(
+            net->connection.pks[PEER_PACKET]->data, 
+            0, 
+            net->connection.pks[PEER_PACKET]->maxlen);
+
         setupClientConnect(
             net->connection.pks[PEER_PACKET], net->connection.hostaddr);
 
@@ -108,19 +127,20 @@ int startNetClient(NET *net, const char *string)
     return success;
 }
 
-void initNet(NET *net, P players[])
+void initNet(NET *net)
 {
     net->numusers = 0;
     net->numplayers = 0;
 
     net->lost = 0;
     net->pquit = 0;
+    net->join = 0;
+    net->left = 0;
 
     net->thread = NULL;
     net->users = NULL;
     net->players_net = NULL;
     net->localplayer = NULL;
-    net->players_game = players;
 
     net->localuser.id = 0;
     net->localuser.address.host = 0;
@@ -523,15 +543,19 @@ int client_thread(void *ptr)
 
                         if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] > net->numplayers)
                         {
-                            clientHandleNewUser(net->players_net, net->players_game, buffer, pkg_len, &net->numplayers);
+                            clientHandleNewUser(net->players_net, buffer, pkg_len, &net->numplayers);
+                            net->join = 1;
                         }
                         else if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] < net->numplayers)
                         {
                             clientHandleLostUser(net->players_net, buffer, pkg_len, &net->numplayers);
+                            net->left = 1;
                         }
 
                         if (net->localplayer == NULL)
                         {
+                            printf("NET: local user id %d\n", net->localuser.id);
+
                             for (unsigned char i = 0; i < net->numplayers; i++)
                             {
                                 if (net->players_net[i].id == net->localuser.id)
@@ -889,7 +913,7 @@ void clientHandlePlay(P_NET *players, UDPpacket *packet, unsigned char *numplaye
     }
 }
 
-void clientHandleNewUser(P_NET *plrs_n, P *plrs_g, int *buf, int pkg_len, unsigned char *numplayers)
+void clientHandleNewUser(P_NET *plrs, int *buf, int pkg_len, unsigned char *numplayers)
 {
     unsigned char n = 0;
     
@@ -897,12 +921,12 @@ void clientHandleNewUser(P_NET *plrs_n, P *plrs_g, int *buf, int pkg_len, unsign
     {
         for (unsigned j = 0; j < (*numplayers); j++)
         {
-            if (buf[i] == plrs_n[j].id) 
+            if (buf[i] == plrs[j].id) 
             {
                 n = 1;
                 break;
             }
-            else if (!plrs_n[j].id) 
+            else if (!plrs[j].id) 
             {
                 n = 1; 
                 break;
@@ -914,10 +938,9 @@ void clientHandleNewUser(P_NET *plrs_n, P *plrs_g, int *buf, int pkg_len, unsign
             (*numplayers)++;
             for (unsigned p = 0; p < (*numplayers); p++)
             {
-                if (!plrs_n[p].id)
+                if (!plrs[p].id)
                 {
-                    addPlayerNet(&plrs_n[p], buf[i]);
-                    addPlayerGame(buf[i]);
+                    addPlayerNet(&plrs[p], buf[i]);
                     break;
                 }
             }
@@ -948,9 +971,8 @@ void clientHandleLostUser(P_NET *plrs, int *buf, int pkg_len, unsigned char *num
         if (!n)
         {
             printf("USER: found lost id:%d\n", plrs[i].id);
-            (*numplayers)--;
             removePlayerNet(&plrs[i]);
-            removePlayerGame(buf[i]);
+            (*numplayers)--;
         }
         n = 0;
     }

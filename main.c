@@ -28,12 +28,11 @@ int main(int argc, const char *argv[])
         {
             printf("font loaded!\n");
 
-            T playerTexture, gunTexture;
+            T playerTexture;
 
             printf("loading assets ...\n");
 
-            if (initTexture(renderer, &playerTexture, "assets/graphics/warrior-Sheet.png")
-            & initTexture(renderer, &gunTexture, "assets/graphics/tiny_gun_icons/pack.png"))
+            if (initTexture(renderer, &playerTexture, "assets/warrior-Sheet.png"))
             {
                 printf("texture assets loaded!\n");
 
@@ -50,7 +49,7 @@ int main(int argc, const char *argv[])
                     int delta;
 
                     play_test.mix_chunks = audio_chunks;
-                    play_test.gunTexture = &gunTexture;
+                    play_test.gunTexture = NULL;
                     play_test.controller = NULL;
 
                     play_test.channel_volume = 32;
@@ -96,7 +95,7 @@ int main(int argc, const char *argv[])
                         setupGoalKeepers(gk_r, goalie);
                         setupGame(&play_test, goal_r, gk_r, goalie);
 
-                        initNet(&play_test.network, &players);
+                        initNet(&play_test.network);
 
                         play_test.buttons = buttons;
 

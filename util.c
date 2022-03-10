@@ -451,7 +451,8 @@ void freePlayTest(P_TEST *ptest)
 
     printf("free texture map\n");
 
-    freeTexture(ptest->gunTexture);
+    if (ptest->gunTexture != NULL)
+        freeTexture(ptest->gunTexture);
 
     printf("free gun texture\n");
 
@@ -1169,9 +1170,15 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                                         else 
                                         {
                                             // disconnect from net here
-                                            pt->network.pquit = true;
                                             closeNet(&pt->network);
                                             pt->is_net = false;
+                                            for (unsigned i = 0; i < MAX_GAME_USERS; i++)
+                                            {
+                                                pt->players[i].id = 0;
+                                                pt->players[i].spawned = false;
+                                            }
+                                            pt->c_player = &pt->players[0];
+                                            pt->c_player->spawned = true;
                                         }
                                     break;
                                     case 2: 
@@ -1469,8 +1476,8 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
                                     for (int i = 0; i < 2; i++) 
                                         resetPlayer(&pt->players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
 
-                                    pt->players[0].id = pt->network.localuser.id;
-                                    pt->players[0].spawned = true;
+                                    //pt->players[0].id = pt->network.localuser.id;
+                                    //pt->players[0].spawned = true;
 
                                     pt->g_state = G_PLAY;
                                 }
@@ -1695,10 +1702,10 @@ void updateGame(P_TEST *pt, P players[])
 
         if (pt->network.localplayer != NULL)
         {
-            pt->network.localplayer->x = players[0].x;
-            pt->network.localplayer->y = players[0].y;
+            pt->network.localplayer->x = pt->c_player->x;
+            pt->network.localplayer->y = pt->c_player->y;
 
-            for (unsigned char i = 1; i < MAX_NET_USERS; i++)
+            for (unsigned char i = 0; i < MAX_NET_USERS; i++)
             {
                 if (pt->network.localplayer->id != pt->network.players_net[i].id)
                 {
@@ -1707,13 +1714,117 @@ void updateGame(P_TEST *pt, P players[])
                 }
             }
         }
+
+        if (pt->network.join)
+        {
+            printf("NET: player join\n");
+            //unsigned char n = 0;
+            pt->network.join = false;
+            for (unsigned char i = 0; i < pt->network.numplayers; i++)
+            {
+                if (!pt->players[i].id)
+                {
+                    addPlayerGame(
+                        &pt->players[i], 
+                        pt->network.players_net[i].id, 
+                        pt->network.players_net[i].x, 
+                        pt->network.players_net[i].y);
+
+                    printf("PLAYER: joined player %d\n", pt->players[i].id);
+                }
+
+                if (pt->players[i].id == pt->network.localplayer->id)
+                    pt->c_player = &pt->players[i];
+            }
+            /*
+            for (unsigned char i = 0; i < pt->network.numplayers; i++)
+            {
+                for (unsigned char j = 0; j < MAX_GAME_USERS; j++)
+                {
+                    if (pt->network.players_net[i].id == pt->players[j].id)
+                    {
+                        n = 1;
+                        break;
+                    }
+                    if (!pt->players[j].id)
+                    {
+                        n = 1;
+                        break;
+                    }
+                }
+
+                if (!n)
+                {
+                    printf("PLAYER: found new id:%d\n", pt->network.players_net[i].id);
+                    for (unsigned char p = 0; p < pt->network.numplayers; p++)
+                    {
+                        if (!players[p].id)
+                        {
+                            addPlayerGame(
+                                &players[p], 
+                                pt->network.players_net[i].id, 
+                                pt->network.players_net[i].x, 
+                                pt->network.players_net[i].y);
+
+                            if (pt->players[p].id == pt->network.localplayer->id)
+                                pt->c_player = &pt->players[p];
+
+                            break;
+                        }
+                    }
+                }
+
+                n = 0;
+            }
+            */
+        }
+
+        if (pt->network.left)
+        {
+            printf("NET: player left\n");
+            pt->network.left = false;
+            unsigned char n = 0;
+            for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+            {
+                for (unsigned char j = 0; j < pt->network.numplayers; j++)
+                {
+                    if (players[i].id == pt->network.players_net[j].id) 
+                    {
+                        n = 1;
+                        break;
+                    }
+                    else if (!players[i].id) 
+                    {
+                        n = 1; 
+                        break;
+                    }
+                }
+
+                if (!n)
+                {
+                    printf("PLAYER: found lost id:%d\n", players[i].id);
+                    removePlayerGame(&players[i]);
+                }
+
+                if (pt->players[i].id == pt->network.localplayer->id)
+                    pt->c_player = &pt->players[i];
+
+                n = 0;
+            }
+        }
         
         if (pt->network.lost)
         {
             // disconnect from net here
-            pt->network.pquit = true;
             closeNet(&pt->network);
             pt->is_net = false;
+            for (unsigned i = 0; i < MAX_GAME_USERS; i++)
+            {
+                pt->players[i].id = 0;
+                pt->players[i].spawned = false;
+            }
+            pt->c_player = &pt->players[0];
+            pt->c_player->spawned = true;
         }
     }
     else updateLocalGame(pt, players);
@@ -2730,6 +2841,8 @@ void updateHostGame(P_TEST *pt, P plrs[])
                 pt->network.players_net[pt->network.numplayers - 1].id);
 
             plrs[pt->network.numplayers - 1].spawned = true;
+
+            printf("PLAYER: id %d\n", plrs[pt->network.numplayers - 1].id);
         }
     }
 
@@ -2743,7 +2856,6 @@ void updateHostGame(P_TEST *pt, P plrs[])
                 {
                     plrs[i].x = pt->network.players_net[j].x;
                     plrs[i].y = pt->network.players_net[j].y;
-                    //updatePlayer(&plrs[i], pt);
                     break;
                 }
             }
@@ -2753,14 +2865,9 @@ void updateHostGame(P_TEST *pt, P plrs[])
 
 void updateClientGame(P_TEST *pt, P plrs[])
 {
-    updatePlayer(&plrs[0], pt);
+    updatePlayer(pt->c_player, pt);
 
-    if (!plrs[pt->network.numplayers - 1].id)
-    {
-        
-    }
-
-    for (unsigned char i = 1; i < MAX_GAME_USERS; i++)
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
     {
         if (plrs[i].spawned)
         {
@@ -2949,6 +3056,22 @@ void setupGoalKeepers(SDL_Rect *r, P_G *goalie)
         initGoalkeeper(&goalie[i]);
         if (i == 1) goalie[i].x = 742;
     }
+}
+
+void addPlayerGame(P *p, unsigned char id, int x, int y)
+{
+    p->id = id;
+    p->x = x;
+    p->y = y;
+    p->spawned = true;
+}
+
+void removePlayerGame(P *p)
+{
+    p->id = 0;
+    p->x = 0;
+    p->y = 0;
+    p->spawned = false;
 }
 
 void resetPlay(P_TEST *pt, P *player)
