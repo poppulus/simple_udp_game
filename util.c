@@ -698,79 +698,77 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             pt->gk_r[i].y - pt->camera.y,
             pt->gk_r[i].w, 
             pt->gk_r[i].h
-        };
-
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
-        SDL_RenderFillRect(r, &gq);
-
-        SDL_RenderFillRect(r, &gkq);
-    }
-
-    for (i = 0; i < 2; i++)
-    {
-        SDL_Rect kq = {
+        }, kq = {
             pt->goalie[i].r.x - pt->camera.x, 
             pt->goalie[i].r.y - pt->camera.y,
             pt->goalie[i].r.w, 
             pt->goalie[i].r.h
         };
 
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
+        SDL_RenderFillRect(r, &gq);
+
+        SDL_RenderFillRect(r, &gkq);
+
         SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
         SDL_RenderFillRect(r, &kq);
     }
 
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < MAX_GAME_USERS; i++)
     {
         if (players[i].spawned)
         {
-            SDL_Rect cq = {
-                players[i].club_r.x - pt->camera.x, 
-                players[i].club_r.y - pt->camera.y, 
-                players[i].club_r.w, 
-                players[i].club_r.h
-            },
-            plq = {
-                players[i].r.x - pt->camera.x, 
-                players[i].r.y - pt->camera.y, 
-                players[i].r.w, 
-                players[i].r.h
-            };
-
-            switch (players[i].state)
+            if (!pt->is_net)
             {
-                case PLR_SHOOT:
-                    // player hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &plq);
-                    // club hitbox
-                    SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &cq);
-                break;
-                case PLR_SWING:
-                    // player hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &plq);
-                    // club hitbox
-                    SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &cq);
-                break;
-                case PLR_BLOCK:
-                    // player hitbox
-                    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &plq);
-                break;
-                default:
-                    // player hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &plq);
-                    // club hitbox
-                    if (players[i].pvel == MAX_SHOOT_VELOCITY)
-                        SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-                    else 
-                        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                SDL_Rect cq = {
+                    players[i].club_r.x - pt->camera.x, 
+                    players[i].club_r.y - pt->camera.y, 
+                    players[i].club_r.w, 
+                    players[i].club_r.h
+                },
+                plq = {
+                    players[i].r.x - pt->camera.x, 
+                    players[i].r.y - pt->camera.y, 
+                    players[i].r.w, 
+                    players[i].r.h
+                };
 
-                    SDL_RenderFillRect(r, &cq);
-                break;
+                switch (players[i].state)
+                {
+                    case PLR_SHOOT:
+                        // player hitbox
+                        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &plq);
+                        // club hitbox
+                        SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &cq);
+                    break;
+                    case PLR_SWING:
+                        // player hitbox
+                        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &plq);
+                        // club hitbox
+                        SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &cq);
+                    break;
+                    case PLR_BLOCK:
+                        // player hitbox
+                        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &plq);
+                    break;
+                    default:
+                        // player hitbox
+                        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                        SDL_RenderFillRect(r, &plq);
+                        // club hitbox
+                        if (players[i].pvel == MAX_SHOOT_VELOCITY)
+                            SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+                        else 
+                            SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+
+                        SDL_RenderFillRect(r, &cq);
+                    break;
+                }
             }
             
             // player texture
@@ -1169,13 +1167,32 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                                         if (!pt->is_net) pt->g_state = G_JOIN; 
                                         else 
                                         {
+                                            // send disconnect signal
+                                            if (pt->network.localuser.id)
+                                            {
+                                                pt->network.localuser.status = N_DISCONNECT;
+
+                                                unsigned long timer = SDL_GetTicks64();
+
+                                                while (!pt->network.lost)
+                                                {
+                                                    if ((SDL_GetTicks64() - timer) >= 1000) 
+                                                        pt->network.pquit = true;
+                                                }
+                                            }
+                                            
                                             // disconnect from net here
                                             closeNet(&pt->network);
                                             pt->is_net = false;
+
                                             for (unsigned i = 0; i < MAX_GAME_USERS; i++)
                                             {
+                                                resetPlayer(
+                                                    &pt->players[i],
+                                                    pt->level.r.w >> 1, 
+                                                    pt->level.r.h >> 1);
+
                                                 pt->players[i].id = 0;
-                                                pt->players[i].spawned = false;
                                             }
                                             pt->c_player = &pt->players[0];
                                             pt->c_player->spawned = true;
@@ -1472,9 +1489,14 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
                                 if (startNetClient(&pt->network, pt->input_field.string))
                                 {
                                     pt->is_net = true;
+
+                                    resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
                                     
                                     for (int i = 0; i < 2; i++) 
-                                        resetPlayer(&pt->players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
+                                        resetPlayer(
+                                            &pt->players[i], 
+                                            pt->level.r.w >> 1, 
+                                            pt->level.r.h >> 1);
 
                                     //pt->players[0].id = pt->network.localuser.id;
                                     //pt->players[0].spawned = true;
@@ -1697,6 +1719,9 @@ void updateGame(P_TEST *pt, P players[])
             pt->network.puck.y = pt->puck.y;
         }
 
+        pt->puck.r.x = pt->puck.x;
+        pt->puck.r.y = pt->puck.y;
+
         pt->rx = pt->puck.r.x + (pt->puck.r.w >> 1);
         pt->ry = pt->puck.r.y + (pt->puck.r.h >> 1);
 
@@ -1736,47 +1761,6 @@ void updateGame(P_TEST *pt, P players[])
                 if (pt->players[i].id == pt->network.localplayer->id)
                     pt->c_player = &pt->players[i];
             }
-            /*
-            for (unsigned char i = 0; i < pt->network.numplayers; i++)
-            {
-                for (unsigned char j = 0; j < MAX_GAME_USERS; j++)
-                {
-                    if (pt->network.players_net[i].id == pt->players[j].id)
-                    {
-                        n = 1;
-                        break;
-                    }
-                    if (!pt->players[j].id)
-                    {
-                        n = 1;
-                        break;
-                    }
-                }
-
-                if (!n)
-                {
-                    printf("PLAYER: found new id:%d\n", pt->network.players_net[i].id);
-                    for (unsigned char p = 0; p < pt->network.numplayers; p++)
-                    {
-                        if (!players[p].id)
-                        {
-                            addPlayerGame(
-                                &players[p], 
-                                pt->network.players_net[i].id, 
-                                pt->network.players_net[i].x, 
-                                pt->network.players_net[i].y);
-
-                            if (pt->players[p].id == pt->network.localplayer->id)
-                                pt->c_player = &pt->players[p];
-
-                            break;
-                        }
-                    }
-                }
-
-                n = 0;
-            }
-            */
         }
 
         if (pt->network.left)
@@ -1818,11 +1802,17 @@ void updateGame(P_TEST *pt, P players[])
             // disconnect from net here
             closeNet(&pt->network);
             pt->is_net = false;
+
             for (unsigned i = 0; i < MAX_GAME_USERS; i++)
             {
+                resetPlayer(
+                    &pt->players[i], 
+                    pt->level.r.w >> 1, 
+                    pt->level.r.h >> 1);
+
                 pt->players[i].id = 0;
-                pt->players[i].spawned = false;
             }
+            // set local player to first
             pt->c_player = &pt->players[0];
             pt->c_player->spawned = true;
         }
@@ -2431,7 +2421,7 @@ void updateGameGoal(P_TEST *pt, P players[])
 
     if (++pt->SCORE_timer > 240)
     {
-        for (int i = 0; i < 2; i++) 
+        for (int i = 0; i < MAX_GAME_USERS; i++) 
             resetPlayer(&players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
         
         resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
@@ -2832,6 +2822,7 @@ void updateLocalGame(P_TEST *pt, P players[])
 void updateHostGame(P_TEST *pt, P plrs[])
 {
     updatePlayer(&plrs[0], pt);
+    animatePlayer(&plrs[0]);
 
     if (!plrs[pt->network.numplayers - 1].id)
     {
@@ -2859,6 +2850,8 @@ void updateHostGame(P_TEST *pt, P plrs[])
                     break;
                 }
             }
+            updatePlayer(&plrs[i], pt);
+            animatePlayer(&plrs[i]);
         }
     }
 }
@@ -2866,6 +2859,7 @@ void updateHostGame(P_TEST *pt, P plrs[])
 void updateClientGame(P_TEST *pt, P plrs[])
 {
     updatePlayer(pt->c_player, pt);
+    animatePlayer(pt->c_player);
 
     for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
     {
@@ -2878,6 +2872,9 @@ void updateClientGame(P_TEST *pt, P plrs[])
                 {
                     plrs[i].x = pt->network.players_net[j].x;
                     plrs[i].y = pt->network.players_net[j].y;
+
+                    updatePlayer(&plrs[i], pt);
+                    animatePlayer(&plrs[i]);
                     break;
                 }
             }

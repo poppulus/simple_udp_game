@@ -305,6 +305,8 @@ void initGoalkeeper(P_G *g);
 void setCamera(SDL_Rect *c, int x, int y);
 void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s);
 
+void setPuckBounce();
+
 void setupPlay(P_TEST *pt, P *player);
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep);
 void setupGoals(SDL_Rect *r);

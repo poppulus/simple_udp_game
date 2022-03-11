@@ -95,6 +95,8 @@ void removeUser(UDPuser *user);
 void addPlayerNet(P_NET *p, int id);
 void removePlayerNet(P_NET *p);
 
+void resetUser(UDPuser *u);
+
 void setPackageAddress(IPaddress *send_addr, IPaddress recv_addr);
 
 void setupClientConnect(UDPpacket *p, IPaddress ip);

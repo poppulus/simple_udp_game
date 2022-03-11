@@ -4,6 +4,7 @@ void closeNet(NET *net)
 {
     net->pquit = 1;
     net->lost = 1;
+
     printf("NET: wait on thread if any\n");
     // wait on thread and free
     if (net->thread != NULL) 
@@ -12,12 +13,15 @@ void closeNet(NET *net)
         net->thread = NULL;
         printf("THREAD: kill\n");
     }
+
     net->pquit = 0;
     net->lost = 0;
+
     printf("NET: close socket\n");
     // free socket
     SDLNet_UDP_Close(net->connection.sd);
     net->connection.sd = NULL;
+
     printf("NET: free udp packets\n");
     unsigned char i;
     // free packet pointers
@@ -29,6 +33,7 @@ void closeNet(NET *net)
             net->connection.pks[i] = NULL;
         }
     }
+
     printf("NET: free users\n");
     // free users
     if (net->users != NULL)
@@ -36,6 +41,7 @@ void closeNet(NET *net)
         free(net->users);
         net->users = NULL;
     }
+
     printf("NET: free players\n");
     // free players
     if (net->players_net != NULL)
@@ -43,18 +49,17 @@ void closeNet(NET *net)
         free(net->players_net);
         net->players_net = NULL;
     }
+
     printf("NET: reset local user\n");
     net->localplayer = NULL;
-    net->localuser.address.host = 0;
-    net->localuser.address.port = 0;
-    net->localuser.status = 0;
-    net->localuser.timeout = 0;
-    net->localuser.id = 0;
+    resetUser(&net->localuser);
+
     printf("NET: reset other values\n");
     net->numplayers = 0;
     net->numusers = 0;
     net->join = 0;
     net->left = 0;
+
     printf("NET: exit\n");
     SDLNet_Quit();
 }
@@ -464,6 +469,15 @@ void removePlayerNet(P_NET *p)
     p->y = 0;
 }
 
+void resetUser(UDPuser *u)
+{
+    u->address.host = 0;
+    u->address.port = 0;
+    u->status = 0;
+    u->timeout = 0;
+    u->id = 0;
+}
+
 int client_thread(void *ptr)
 {
     NET *net = ptr;
@@ -514,7 +528,7 @@ int client_thread(void *ptr)
                 break;
                 case N_NEWID:
                     //printf("RECEIVE: new id\n");
-                    if (net->localuser.status != N_NEWID)
+                    if (net->localuser.status == N_CONNECT)
                     {
                         net->localuser.id = net->connection.pks[HOST_PACKET]->data[NET_USERDATA];
                         net->localuser.status = N_NEWID;
@@ -522,7 +536,7 @@ int client_thread(void *ptr)
                 break;
                 case N_PLAY:
                     //printf("RECEIVE: play\n");
-                    if (net->localuser.status != N_PLAY) 
+                    if (net->localuser.status == N_NEWID) 
                     {
                         net->localuser.status = N_PLAY;
 
@@ -531,24 +545,24 @@ int client_thread(void *ptr)
                             net->localuser.id, 
                             net->connection.pks[HOST_PACKET]->address);
                     }
-                    else 
+                    else if (net->localuser.status == N_PLAY)
                     {
                         // handle incoming data 
 
-                        buffer = (int *)&net->connection.pks[HOST_PACKET]->data[NET_USERDATA];
+                        buffer = (int *)&net->connection.pks[HOST_PACKET]->data[NET_PUCKDATA];
                         pkg_len = (net->connection.pks[HOST_PACKET]->len - NET_BUFFER_PRESET) >> 2;
 
-                        net->puck.x = (int)net->connection.pks[HOST_PACKET]->data[NET_PUCKDATA];
-                        net->puck.y = (int)net->connection.pks[HOST_PACKET]->data[NET_PUCKDATA + 4];
+                        net->puck.x = buffer[0];
+                        net->puck.y = buffer[1];
 
                         if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] > net->numplayers)
                         {
-                            clientHandleNewUser(net->players_net, buffer, pkg_len, &net->numplayers);
+                            clientHandleNewUser(net->players_net, &buffer[2], pkg_len, &net->numplayers);
                             net->join = 1;
                         }
                         else if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] < net->numplayers)
                         {
-                            clientHandleLostUser(net->players_net, buffer, pkg_len, &net->numplayers);
+                            clientHandleLostUser(net->players_net, &buffer[2], pkg_len, &net->numplayers);
                             net->left = 1;
                         }
 
@@ -573,11 +587,11 @@ int client_thread(void *ptr)
 
                         for (unsigned char i = 0; i < net->numplayers; i++)
                         {
-                            if (net->players_net[i].id == buffer[i * 3] 
+                            if (net->players_net[i].id == buffer[2 + (i * 3)] 
                             && net->players_net[i].id != net->localuser.id)
                             {
-                                net->players_net[i].x = buffer[(i * 3) + 1];
-                                net->players_net[i].y = buffer[(i * 3) + 2];
+                                net->players_net[i].x = buffer[2 + ((i * 3) + 1)];
+                                net->players_net[i].y = buffer[2 + ((i * 3) + 2)];
                             }
                         }
                     }
