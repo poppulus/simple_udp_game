@@ -774,6 +774,13 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             // player texture
             if (checkCollision(players[i].r, pt->camera))
             {
+                FC_DrawColor(
+                    f, r, 
+                    players[i].r.x - pt->camera.x, 
+                    players[i].r.y - 32 - pt->camera.y, 
+                    FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                    "P%d", i + 1);
+
                 renderPlayer(
                     r, 
                     players[i].texture->t,
@@ -784,7 +791,7 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             else 
             {
                 int nx = players[i].r.x - pt->camera.x, 
-                    ny = players[i].r.y - pt->camera.y;
+                    ny = players[i].r.y - 32 - pt->camera.y;
 
                 if (players[i].r.x + players[i].r.w < pt->camera.x)
                 {
@@ -831,24 +838,28 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                         "P%d", i + 1);
                 }
             }
-
+            /*
             if (players[i].crosshair.show) 
             {
                 SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
                 SDL_RenderFillRect(r, &players[i].crosshair.r);
             }
+            */
         }
     }
 
-    SDL_Rect pq = {
-        pt->puck.r.x - pt->camera.x, 
-        pt->puck.r.y - pt->camera.y, 
-        pt->puck.r.w, pt->puck.r.h
-    };
+    if (!pt->puck.grab)
+    {
+        SDL_Rect pq = {
+            pt->puck.r.x - pt->camera.x, 
+            pt->puck.r.y - pt->camera.y, 
+            pt->puck.r.w, pt->puck.r.h
+        };
 
-    // puck hitbox
-    SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-    SDL_RenderFillRect(r, &pq);
+        // puck hitbox
+        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+        SDL_RenderFillRect(r, &pq);
+    }
 
     if (pt->p_state == P_GOAL)
     {
@@ -1490,7 +1501,7 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
                                 {
                                     pt->is_net = true;
 
-                                    resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
+                                    resetPuck(&pt->puck, 0, 0);
                                     
                                     for (int i = 0; i < 2; i++) 
                                         resetPlayer(
@@ -1503,6 +1514,7 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
 
                                     pt->g_state = G_PLAY;
                                 }
+                                else pt->g_state = G_MENU;
                             }
                             resetInputField(&pt->input_field);
                         }
@@ -1607,6 +1619,110 @@ void inputsHost(P_TEST *pt, SDL_Event ev)
     }
 }
 
+void inputsNetGame(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        switch (ev.type)
+        {
+            case SDL_QUIT:
+                pt->is_net = false;
+                pt->quit = true;
+            break;
+            case SDL_KEYDOWN:
+                if (!ev.key.repeat)
+                {
+                    switch (ev.key.keysym.sym)
+                    {
+                        case SDLK_ESCAPE:
+                            if (pt->g_state == G_PLAY) pt->g_state = G_MENU;
+                            else if (pt->g_state == G_MENU) pt->g_state = G_PLAY;
+                        break;
+                        case SDLK_a: 
+                            enqueue(pt->c_player->input_q, KEY_LEFT);
+                        break;
+                        case SDLK_w: 
+                            enqueue(pt->c_player->input_q, KEY_UP);
+                        break;
+                        case SDLK_d: 
+                            enqueue(pt->c_player->input_q, KEY_RIGHT);
+                        break;
+                        case SDLK_s: 
+                            enqueue(pt->c_player->input_q, KEY_DOWN); 
+                        break;
+                        case SDLK_SPACE:
+                        case SDLK_KP_SPACE:
+                            if (pt->c_player->state == PLR_SKATE_WP)
+                            {
+                                pt->c_player->state = PLR_SHOOT;
+                            }
+                        break;
+                    }
+                }
+            break;
+            case SDL_KEYUP:
+                switch (ev.key.keysym.sym)
+                {
+                    case SDLK_a: 
+                        dequeue(pt->c_player->input_q, KEY_LEFT);
+                    break;
+                    case SDLK_w: 
+                        dequeue(pt->c_player->input_q, KEY_UP);
+                    break;
+                    case SDLK_d: 
+                        dequeue(pt->c_player->input_q, KEY_RIGHT);
+                    break;
+                    case SDLK_s: 
+                        dequeue(pt->c_player->input_q, KEY_DOWN);
+                    break;
+                }
+            break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (pt->g_state == G_MENU && ev.button.button == SDL_BUTTON_LEFT)
+                {
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[1]))
+                    {
+                        // send disconnect signal
+                        if (pt->network.localuser.id)
+                        {
+                            pt->network.localuser.status = N_DISCONNECT;
+
+                            unsigned long timer = SDL_GetTicks64();
+
+                            while (!pt->network.lost)
+                            {
+                                if ((SDL_GetTicks64() - timer) >= 1000) 
+                                    pt->network.pquit = true;
+                            }
+                        }
+                        // disconnect from net here
+                        closeNet(&pt->network);
+                        pt->is_net = false;
+
+                        for (unsigned i = 0; i < MAX_GAME_USERS; i++)
+                        {
+                            resetPlayer(
+                                &pt->players[i],
+                                pt->level.r.w >> 1, 
+                                pt->level.r.h >> 1);
+
+                            pt->players[i].id = 0;
+                        }
+
+                        pt->c_player = &pt->players[0];
+                        pt->c_player->spawned = true;
+                    }
+                    else if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[2]))
+                    {
+                        pt->quit = true; 
+                        pt->is_net = false;
+                    }
+                }
+            break;
+        }
+    }
+}
+
 void shootPuck(Puck *puck, float vel, float x, float y, float angle)
 {
     puck->x = x;
@@ -1614,6 +1730,7 @@ void shootPuck(Puck *puck, float vel, float x, float y, float angle)
     puck->xvel = vel * SDL_cos(angle);
     puck->yvel = vel * SDL_sin(angle);
     puck->hit = true;
+    puck->grab = false;
 }
 
 /*
@@ -1708,42 +1825,18 @@ void updateGame(P_TEST *pt, P players[])
         {
             pt->puck.x = pt->network.puck.x;
             pt->puck.y = pt->network.puck.y;
-
-            updateClientGame(pt, players);
         }
         else if (!pt->network.localuser.id)
         {
-            updateHostGame(pt, players);
-
             pt->network.puck.x = pt->puck.x;
             pt->network.puck.y = pt->puck.y;
         }
 
-        pt->puck.r.x = pt->puck.x;
-        pt->puck.r.y = pt->puck.y;
-
-        pt->rx = pt->puck.r.x + (pt->puck.r.w >> 1);
-        pt->ry = pt->puck.r.y + (pt->puck.r.h >> 1);
-
-        if (pt->network.localplayer != NULL)
-        {
-            pt->network.localplayer->x = pt->c_player->x;
-            pt->network.localplayer->y = pt->c_player->y;
-
-            for (unsigned char i = 0; i < MAX_NET_USERS; i++)
-            {
-                if (pt->network.localplayer->id != pt->network.players_net[i].id)
-                {
-                    players[i].x = pt->network.players_net[i].x;
-                    players[i].y = pt->network.players_net[i].y;
-                }
-            }
-        }
+        updateNetGame(pt, players);
 
         if (pt->network.join)
         {
             printf("NET: player join\n");
-            //unsigned char n = 0;
             pt->network.join = false;
             for (unsigned char i = 0; i < pt->network.numplayers; i++)
             {
@@ -1999,163 +2092,19 @@ void updateGamePlay(P_TEST *pt, P players[])
                 break;
                 default: break;
             }
-
             animatePlayer(&players[i]);
         }
-        
-    }
-
-    //update puck
-
-    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
-    {
-        pt->PUCK_freeze = false;
-        pt->PUCK_freeze_timer = 0;
-    }
-
-    if (pt->puck.hit && (++pt->puck.hit_counter > 16)) 
-    {
-        pt->puck.hit = false;
-        pt->puck.hit_counter = 0;
     }
 
     if (!pt->PUCK_freeze)
     {
-        if (pt->puck.xvel > 0)
-        {
-            pt->puck.xvel -= pt->puck.fvelx;
-            if (pt->puck.xvel < 0) 
-                pt->puck.xvel = 0;
-        }
-        else if (pt->puck.xvel < 0)
-        {
-            pt->puck.xvel += pt->puck.fvelx;
-            if (pt->puck.xvel > 0) 
-                pt->puck.xvel = 0;
-        }
-        
-        if (pt->puck.yvel > 0)
-        {
-            pt->puck.yvel -= pt->puck.fvely;
-            if (pt->puck.yvel < 0) 
-                pt->puck.yvel = 0;
-        }
-        else if (pt->puck.yvel < 0)
-        {
-            pt->puck.yvel += pt->puck.fvely;
-            if (pt->puck.yvel > 0) 
-                pt->puck.yvel = 0;
-        }
-
-        if (pt->puck.xvel)
-        {
-            float px = pt->puck.x + pt->puck.xvel;
-
-            for (int i = 0; i < 2; i++)
-            {
-                if (players[i].state == PLR_BLOCK && !players[i].bounce)
-                {
-                    if (checkPuckCollision(px, pt->puck.y, players[i].r))
-                    {
-                        players[i].bounce = true;
-                        pt->puck.xvel = -pt->puck.xvel;
-                        pt->puck.fvelx += 0.15f;
-                        pt->puck.fvely += 0.15f;
-                    }
-                }
-
-                if (!pt->goalie[i].shoot && checkPuckCollision(px, pt->puck.y, pt->goalie[i].r))
-                {
-                    pt->puck.xvel = -pt->puck.xvel;
-                    pt->puck.fvelx += 0.3f;
-                    pt->puck.fvely += 0.02f;
-                }
-            }
-
-            if (checkPlayerPosition(
-                (int)px >> pt->level.t_bit_size, 
-                (int)pt->puck.y >> pt->level.t_bit_size, 
-                pt->level.collision, pt->level.t_map_h)
-            )
-            {
-                pt->puck.xvel = -pt->puck.xvel;
-                pt->puck.fvelx += 0.3f;
-                pt->puck.fvely += 0.02f;
-            }
-            else if (px < 0 || px > pt->level.r.w) 
-            {
-                pt->puck.xvel = -pt->puck.xvel;
-                pt->puck.fvelx += 0.3f;
-                pt->puck.fvely += 0.02f;
-            }
-            else pt->puck.x = px;
-        }
-
-        if (pt->puck.yvel)
-        {
-            float py = pt->puck.y + pt->puck.yvel;
-
-            for (int i = 0; i < 2; i++)
-            {
-                if (players[i].state == PLR_BLOCK && !players[i].bounce)
-                {
-                    if (checkPuckCollision(pt->puck.x, py, players[i].r))
-                    {
-                        players[i].bounce = true;
-                        pt->puck.yvel = -pt->puck.yvel;
-                        pt->puck.fvelx += 0.15f;
-                        pt->puck.fvely += 0.15f;
-                    }
-                }
-
-                if (!pt->goalie[i].shoot && checkPuckCollision(pt->puck.x, py, pt->goalie[i].r))
-                {
-                    pt->puck.yvel = -pt->puck.yvel;
-                    pt->puck.fvelx += 0.02f;
-                    pt->puck.fvely += 0.3f;
-                }
-            }
-
-            if (checkPlayerPosition(
-                (int)pt->puck.x >> pt->level.t_bit_size, 
-                (int)py >> pt->level.t_bit_size, 
-                pt->level.collision, pt->level.t_map_h)
-            )
-            {
-                pt->puck.yvel = -pt->puck.yvel;
-                pt->puck.fvelx += 0.02f;
-                pt->puck.fvely += 0.3f;
-            }
-            else if (py < 0 || py > pt->level.r.h) 
-            {
-                pt->puck.yvel = -pt->puck.yvel;
-                pt->puck.fvelx += 0.02f;
-                pt->puck.fvely += 0.3f;
-            }
-            else pt->puck.y = py;
-        }
-
-        if (!pt->puck.xvel && !pt->puck.yvel)
-        {
-            pt->puck.fvelx = 0.01f;
-            pt->puck.fvely = 0.01f;
-        }
-
-        pt->puck.r.x = pt->puck.x;
-        pt->puck.r.y = pt->puck.y;
-
         SDL_Rect *r = &pt->puck.r;
         bool grab = false;
+        unsigned char i = 0;
 
-        for (unsigned char i = 0; i < 2; i++) 
+        for (; i < 2; i++)
         {
-            if (players[i].state == PLR_SKATE_WP) 
-            {
-                r = &players[i].r;
-                grab = true;
-                break;
-            }
-            else if (pt->goalie[i].grab)
+            if (pt->goalie[i].grab)
             {
                 r = &pt->goalie[i].r;
                 grab = true;
@@ -2163,159 +2112,20 @@ void updateGamePlay(P_TEST *pt, P players[])
             }
         }
 
-        // update goalkeepers
-
-        if (pt->p_state != P_GOAL && !pt->PUCK_freeze)
+        for (i = 0; i < pt->network.numplayers; i++) 
         {
-            for (unsigned char g = 0; g < 2; g++)
+            if (players[i].state == PLR_SKATE_WP) 
             {
-                switch (pt->goalie[g].state)
-                {
-                    case GK_NORMAL:
-                        if (!pt->puck.xvel && !pt->puck.yvel && !grab && !pt->puck.hit)
-                        {
-                            if (g == 0)
-                            {
-                                if (checkCollision(pt->puck.r, pt->gk_r[0]))
-                                    pt->goalie[g].state = GK_CLEAR_GOAL;
-                            }
-                            else 
-                            {
-                                if (checkCollision(pt->puck.r, pt->gk_r[1]))
-                                    pt->goalie[g].state = GK_CLEAR_GOAL;
-                            }
-                        }
-
-                        float f = 0.85f;
-
-                        if (g == 0)
-                        {
-                            if (pt->goalie[g].x > 154) 
-                            {
-                                if ((pt->goalie[g].x -= 1.125f) < 154)
-                                    pt->goalie[g].x = 154;
-                            }
-                            else if (pt->goalie[g].x < 154) 
-                            {
-                                if ((pt->goalie[g].x += 1.125f) > 154)
-                                    pt->goalie[g].x = 154;
-                            }
-
-                            if (r->x - pt->goalie[g].x < 100)
-                                f = 1.5f;
-                            else if (r->x - pt->goalie[g].x < 150)
-                                f = 1.25f;
-                            else if (r->x - pt->goalie[g].x < 200)
-                                f = 1.125f;
-                        }
-                        else 
-                        {
-                            if (pt->goalie[g].x > 742) 
-                            {
-                                if ((pt->goalie[g].x -= 1.125f) < 742)
-                                    pt->goalie[g].x = 742;
-                            }
-                            else if (pt->goalie[g].x < 742) 
-                            {
-                                if ((pt->goalie[g].x += 1.125f) > 742)
-                                    pt->goalie[g].x = 742;
-                            }
-
-                            if (pt->goalie[g].x - r->x < 100)
-                                f = 1.5f;
-                            else if (pt->goalie[g].x - r->x < 150)
-                                f = 1.25f;
-                            else if (pt->goalie[g].x - r->x < 200)
-                                f = 1.125f;
-                        }
-
-                        if (r->y < 112)
-                        {
-                            if (pt->goalie[g].y < 112) pt->goalie[g].y += f;
-                            else adjustGoalie(&pt->goalie[g].y, r->y, f);
-                        }
-                        else if (r->y > 160)
-                        {
-                            if (pt->goalie[g].y > 160) pt->goalie[g].y -= f;
-                            else adjustGoalie(&pt->goalie[g].y, r->y, f);
-                        }
-                        else adjustGoalie(&pt->goalie[g].y, r->y, f);
-                    break;
-                    case GK_CLEAR_GOAL:
-                        if (!grab)
-                        {
-                            if (checkCollision(pt->puck.r, pt->goalie[g].r))
-                            {
-                                pt->puck.x = pt->goalie[g].x;
-                                pt->puck.y = pt->goalie[g].y;
-
-                                pt->goalie[g].grab = true;
-                                pt->goalie[g].state = GK_GRAB;
-                            }
-
-                            if (g == 0)
-                            {
-                                if (pt->goalie[g].x < pt->puck.x)
-                                {
-                                    if ((pt->goalie[g].x += 1.125f) > pt->puck.x)
-                                        pt->goalie[g].x = pt->puck.x;
-                                }
-                            }
-                            else 
-                            {
-                                if (pt->goalie[g].x > pt->puck.x)
-                                {
-                                    if ((pt->goalie[g].x -= 1.125f) < pt->puck.x)
-                                        pt->goalie[g].x = pt->puck.x;
-                                }
-                            }
-                        }
-                        else pt->goalie[g].state = GK_NORMAL;
-
-                        if (pt->puck.y > pt->goalie[g].y)
-                            pt->goalie[g].y += 1.125f;
-                        else if (pt->puck.y < pt->goalie[g].y)
-                            pt->goalie[g].y -= 1.125f;
-                    break;
-                    case GK_SHOOT:
-                        if (pt->goalie[g].shoot)
-                        {
-                            if (++pt->goalie[g].s_timer > 10)
-                            {
-                                pt->goalie[g].s_timer = 0;
-                                pt->goalie[g].shoot = false;
-                                pt->goalie[g].state = GK_NORMAL;
-                            }
-                        }
-                    break;
-                    case GK_GRAB:
-                        // swing/shoot?
-                        // puck goes to center
-                        if (++pt->goalie[g].s_timer > 10)
-                        {
-                            pt->puck.hit = true;
-                            pt->puck.xvel = g == 0 ? 2.5f : -2.5f;
-                            pt->puck.yvel = 0;
-
-                            pt->PUCK_freeze = true;
-
-                            pt->goalie[g].s_timer = 0;
-                            pt->goalie[g].shoot = true;
-                            pt->goalie[g].grab = false;
-
-                            pt->goalie[g].state = GK_SHOOT;
-
-                            Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                        }
-                    break;
-                }
-
-                pt->goalie[g].r.x = pt->goalie[g].x - 10;
-                pt->goalie[g].r.y = pt->goalie[g].y - 10;
+                r = &players[i].r;
+                grab = true;
+                break;
             }
         }
 
-        for (unsigned char i = 0; i < 2; i++)
+        updatePuck(pt, players);
+        updateGoalKeepers(pt, players, grab);
+
+        for (i = 0; i < 2; i++)
         {
             if (checkGoal(pt->puck.r, pt->goal_r[i]))
                 pt->p_state = P_GOAL;
@@ -2803,6 +2613,254 @@ void updatePlayer(P *p, P_TEST *pt)
     }
 }
 
+void updatePuck(P_TEST *pt, P players[])
+{
+    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
+    {
+        pt->PUCK_freeze = false;
+        pt->PUCK_freeze_timer = 0;
+    }
+
+    if (pt->puck.hit && (++pt->puck.hit_counter > 16)) 
+    {
+        pt->puck.hit = false;
+        pt->puck.hit_counter = 0;
+    }
+
+    if (pt->puck.xvel > 0)
+    {
+        pt->puck.xvel -= pt->puck.fvelx;
+        if (pt->puck.xvel < 0) 
+            pt->puck.xvel = 0;
+    }
+    else if (pt->puck.xvel < 0)
+    {
+        pt->puck.xvel += pt->puck.fvelx;
+        if (pt->puck.xvel > 0) 
+            pt->puck.xvel = 0;
+    }
+    
+    if (pt->puck.yvel > 0)
+    {
+        pt->puck.yvel -= pt->puck.fvely;
+        if (pt->puck.yvel < 0) 
+            pt->puck.yvel = 0;
+    }
+    else if (pt->puck.yvel < 0)
+    {
+        pt->puck.yvel += pt->puck.fvely;
+        if (pt->puck.yvel > 0) 
+            pt->puck.yvel = 0;
+    }
+
+    if (pt->puck.xvel)
+    {
+        float px = pt->puck.x + pt->puck.xvel;
+
+        if (checkPlayerPosition(
+            (int)px >> pt->level.t_bit_size, 
+            (int)pt->puck.y >> pt->level.t_bit_size, 
+            pt->level.collision, pt->level.t_map_h)
+        )
+        {
+            pt->puck.xvel = -pt->puck.xvel;
+            pt->puck.fvelx += 0.3f;
+            pt->puck.fvely += 0.02f;
+        }
+        else if (px < 0 || px > pt->level.r.w) 
+        {
+            pt->puck.xvel = -pt->puck.xvel;
+            pt->puck.fvelx += 0.3f;
+            pt->puck.fvely += 0.02f;
+        }
+        else pt->puck.x = px;
+    }
+
+    if (pt->puck.yvel)
+    {
+        float py = pt->puck.y + pt->puck.yvel;
+
+        if (checkPlayerPosition(
+            (int)pt->puck.x >> pt->level.t_bit_size, 
+            (int)py >> pt->level.t_bit_size, 
+            pt->level.collision, pt->level.t_map_h)
+        )
+        {
+            pt->puck.yvel = -pt->puck.yvel;
+            pt->puck.fvelx += 0.02f;
+            pt->puck.fvely += 0.3f;
+        }
+        else if (py < 0 || py > pt->level.r.h) 
+        {
+            pt->puck.yvel = -pt->puck.yvel;
+            pt->puck.fvelx += 0.02f;
+            pt->puck.fvely += 0.3f;
+        }
+        else pt->puck.y = py;
+    }
+
+    if (!pt->puck.xvel && !pt->puck.yvel)
+    {
+        pt->puck.fvelx = 0.01f;
+        pt->puck.fvely = 0.01f;
+    }
+
+    pt->puck.r.x = pt->puck.x;
+    pt->puck.r.y = pt->puck.y;
+}
+
+void updateGoalKeepers(P_TEST *pt, P players[], bool grab)
+{
+    if (pt->p_state != P_GOAL && !pt->PUCK_freeze)
+    {
+        for (unsigned char g = 0; g < 2; g++)
+        {
+            switch (pt->goalie[g].state)
+            {
+                case GK_NORMAL:
+                    if (!pt->puck.xvel && !pt->puck.yvel && !grab && !pt->puck.hit)
+                    {
+                        if (g == 0)
+                        {
+                            if (checkCollision(pt->puck.r, pt->gk_r[0]))
+                                pt->goalie[g].state = GK_CLEAR_GOAL;
+                        }
+                        else 
+                        {
+                            if (checkCollision(pt->puck.r, pt->gk_r[1]))
+                                pt->goalie[g].state = GK_CLEAR_GOAL;
+                        }
+                    }
+
+                    float f = 0.85f;
+
+                    if (g == 0)
+                    {
+                        if (pt->goalie[g].x > 154) 
+                        {
+                            if ((pt->goalie[g].x -= 1.125f) < 154)
+                                pt->goalie[g].x = 154;
+                        }
+                        else if (pt->goalie[g].x < 154) 
+                        {
+                            if ((pt->goalie[g].x += 1.125f) > 154)
+                                pt->goalie[g].x = 154;
+                        }
+
+                        if (pt->puck.r.x - pt->goalie[g].x < 100)
+                            f = 1.5f;
+                        else if (pt->puck.r.x - pt->goalie[g].x < 150)
+                            f = 1.25f;
+                        else if (pt->puck.r.x - pt->goalie[g].x < 200)
+                            f = 1.125f;
+                    }
+                    else 
+                    {
+                        if (pt->goalie[g].x > 742) 
+                        {
+                            if ((pt->goalie[g].x -= 1.125f) < 742)
+                                pt->goalie[g].x = 742;
+                        }
+                        else if (pt->goalie[g].x < 742) 
+                        {
+                            if ((pt->goalie[g].x += 1.125f) > 742)
+                                pt->goalie[g].x = 742;
+                        }
+
+                        if (pt->goalie[g].x - pt->puck.r.x < 100)
+                            f = 1.5f;
+                        else if (pt->goalie[g].x - pt->puck.r.x < 150)
+                            f = 1.25f;
+                        else if (pt->goalie[g].x - pt->puck.r.x < 200)
+                            f = 1.125f;
+                    }
+
+                    if (pt->puck.r.y < 112)
+                    {
+                        if (pt->goalie[g].y < 112) pt->goalie[g].y += f;
+                        else adjustGoalie(&pt->goalie[g].y, pt->puck.r.y, f);
+                    }
+                    else if (pt->puck.r.y > 160)
+                    {
+                        if (pt->goalie[g].y > 160) pt->goalie[g].y -= f;
+                        else adjustGoalie(&pt->goalie[g].y, pt->puck.r.y, f);
+                    }
+                    else adjustGoalie(&pt->goalie[g].y, pt->puck.r.y, f);
+                break;
+                case GK_CLEAR_GOAL:
+                    if (!grab)
+                    {
+                        if (checkCollision(pt->puck.r, pt->goalie[g].r))
+                        {
+                            pt->puck.x = pt->goalie[g].x;
+                            pt->puck.y = pt->goalie[g].y;
+
+                            pt->goalie[g].grab = true;
+                            pt->goalie[g].state = GK_GRAB;
+                        }
+
+                        if (g == 0)
+                        {
+                            if (pt->goalie[g].x < pt->puck.x)
+                            {
+                                if ((pt->goalie[g].x += 1.125f) > pt->puck.x)
+                                    pt->goalie[g].x = pt->puck.x;
+                            }
+                        }
+                        else 
+                        {
+                            if (pt->goalie[g].x > pt->puck.x)
+                            {
+                                if ((pt->goalie[g].x -= 1.125f) < pt->puck.x)
+                                    pt->goalie[g].x = pt->puck.x;
+                            }
+                        }
+                    }
+                    else pt->goalie[g].state = GK_NORMAL;
+
+                    if (pt->puck.y > pt->goalie[g].y)
+                        pt->goalie[g].y += 1.125f;
+                    else if (pt->puck.y < pt->goalie[g].y)
+                        pt->goalie[g].y -= 1.125f;
+                break;
+                case GK_SHOOT:
+                    if (pt->goalie[g].shoot)
+                    {
+                        if (++pt->goalie[g].s_timer > 10)
+                        {
+                            pt->goalie[g].s_timer = 0;
+                            pt->goalie[g].shoot = false;
+                            pt->goalie[g].state = GK_NORMAL;
+                        }
+                    }
+                break;
+                case GK_GRAB:
+                    // swing/shoot?
+                    // puck goes to center
+                    if (++pt->goalie[g].s_timer > 10)
+                    {
+                        pt->puck.hit = true;
+                        pt->puck.xvel = g == 0 ? 2.5f : -2.5f;
+                        pt->puck.yvel = 0;
+
+                        pt->PUCK_freeze = true;
+
+                        pt->goalie[g].s_timer = 0;
+                        pt->goalie[g].shoot = true;
+                        pt->goalie[g].grab = false;
+
+                        pt->goalie[g].state = GK_SHOOT;
+
+                        Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                    }
+                break;
+            }
+            pt->goalie[g].r.x = pt->goalie[g].x - 10;
+            pt->goalie[g].r.y = pt->goalie[g].y - 10;
+        }
+    }
+}
+
 void updateLocalGame(P_TEST *pt, P players[])
 {
     switch (pt->p_state)
@@ -2851,8 +2909,116 @@ void updateHostGame(P_TEST *pt, P plrs[])
                 }
             }
             updatePlayer(&plrs[i], pt);
+
+            switch (plrs[i].state)
+            {
+                case PLR_SKATE_NP:
+                    if (!pt->puck.hit)
+                    {
+                        bool grab = false;
+
+                        for (int p = 0; p < MAX_GAME_USERS; p++) 
+                        {
+                            if (plrs[p].state == PLR_SKATE_WP) 
+                            {
+                                grab = true; 
+                                break;
+                            }
+                            else if (pt->goalie[p].grab)
+                            {
+                                grab = true; 
+                                break;
+                            }
+                        }
+
+                        if (!grab)
+                        {
+                            if (checkCollision(plrs[i].r, pt->puck.r))
+                            {
+                                pt->puck.xvel = 0;
+                                pt->puck.yvel = 0;
+                                pt->puck.fvelx = 0.01f;
+                                pt->puck.fvely = 0.01f;
+                                pt->puck.x = plrs[i].club_r.x + (plrs[i].club_r.w >> 1);
+                                pt->puck.y = plrs[i].club_r.y + (plrs[i].club_r.h >> 1);
+
+                                plrs[i].pvel = 2;
+                                plrs[i].state = PLR_SKATE_WP;
+
+                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                            }
+                        }
+                    }
+                break;
+                case PLR_SKATE_WP:
+                break;
+                case PLR_SWING:
+                    // check if another player has the puck
+                    for (int p = 0; p < MAX_GAME_USERS; p++)
+                    {
+                        if (&plrs[i] != &plrs[p])
+                        {
+                            if (plrs[p].state == PLR_SKATE_WP
+                            && checkCollision(plrs[i].club_r, plrs[p].club_r))
+                            {
+                                // puck goes wild
+                                pt->puck.hit = true;
+                                pt->puck.xvel = SDL_cos(plrs[i].AIM_angle);
+                                pt->puck.yvel = SDL_sin(plrs[i].AIM_angle);
+
+                                pt->PUCK_freeze = true;
+
+                                plrs[p].state = PLR_SKATE_NP;
+
+                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                                break;
+                            }
+                        }
+                    }
+                break;
+                default: break;
+            }
             animatePlayer(&plrs[i]);
         }
+    }
+
+    if (!pt->PUCK_freeze)
+    {
+        SDL_Rect *r = &pt->puck.r;
+        bool grab = false;
+        unsigned char i = 0;
+
+        for (; i < 2; i++)
+        {
+            if (pt->goalie[i].grab)
+            {
+                r = &pt->goalie[i].r;
+                grab = true;
+                break;
+            }
+        }
+
+        for (i = 0; i < pt->network.numplayers; i++) 
+        {
+            if (plrs[i].state == PLR_SKATE_WP) 
+            {
+                r = &plrs[i].r;
+                grab = true;
+                break;
+            }
+        }
+
+        updatePuck(pt, plrs);
+        updateGoalKeepers(pt, plrs, grab);
+
+        for (i = 0; i < 2; i++)
+        {
+            if (checkGoal(pt->puck.r, pt->goal_r[i]))
+                pt->p_state = P_GOAL;
+        }
+
+        pt->rx = r->x;
+        pt->ry = r->y;
     }
 }
 
@@ -2879,6 +3045,293 @@ void updateClientGame(P_TEST *pt, P plrs[])
                 }
             }
         }
+    }
+}
+
+void updateNetGame(P_TEST *pt, P plrs[])
+{
+    if (!pt->network.localuser.id)
+    {
+        if (!plrs[pt->network.numplayers - 1].id)
+        {
+            if (pt->network.players_net[pt->network.numplayers - 1].id)
+            {
+                plrs[pt->network.numplayers - 1].id = (
+                    pt->network.players_net[pt->network.numplayers - 1].id);
+
+                plrs[pt->network.numplayers - 1].spawned = true;
+
+                printf("PLAYER: id %d\n", plrs[pt->network.numplayers - 1].id);
+            }
+        }
+    }
+
+    updateNetPlayers(pt, plrs);
+
+    switch (*pt->c_player->dir)
+    {
+        case KEY_LEFT:
+            if (pt->c_player->input_q[1] == KEY_UP) 
+                pt->c_player->INPUT_angle = I_UP_LEFT;
+            else if (pt->c_player->input_q[1] == KEY_DOWN) 
+                pt->c_player->INPUT_angle = I_DOWN_LEFT;
+            else 
+                pt->c_player->INPUT_angle = INPUT_LEFT;
+
+            pt->c_player->JOY_vel = 1;
+        break;
+        case KEY_RIGHT:
+            if (pt->c_player->input_q[1] == KEY_UP) 
+                pt->c_player->INPUT_angle = I_UP_RIGHT;
+            else if (pt->c_player->input_q[1] == KEY_DOWN) 
+                pt->c_player->INPUT_angle = I_DOWN_RIGHT;
+            else 
+                pt->c_player->INPUT_angle = INPUT_RIGHT;
+
+            pt->c_player->JOY_vel = 1;
+        break;
+        case KEY_UP:
+            if (pt->c_player->input_q[1] == KEY_LEFT) 
+                pt->c_player->INPUT_angle = I_UP_LEFT;
+            else if (pt->c_player->input_q[1] == KEY_RIGHT) 
+                pt->c_player->INPUT_angle = I_UP_RIGHT;
+            else 
+                pt->c_player->INPUT_angle = INPUT_UP;
+
+            pt->c_player->JOY_vel = 1;
+        break;
+        case KEY_DOWN:
+            if (pt->c_player->input_q[1] == KEY_LEFT) 
+                pt->c_player->INPUT_angle = I_DOWN_LEFT;
+            else if (pt->c_player->input_q[1] == KEY_RIGHT) 
+                pt->c_player->INPUT_angle = I_DOWN_RIGHT;
+            else 
+                pt->c_player->INPUT_angle = INPUT_DOWN;
+
+            pt->c_player->JOY_vel = 1;
+        break;
+        default:
+            pt->c_player->JOY_vel = 0;
+        break;
+    }
+
+    if (pt->c_player->JOY_vel)
+    {
+        float   cos = (
+            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
+                sin = (
+            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
+
+        pt->c_player->xvel = cos;
+        pt->c_player->yvel = sin;
+    }
+    else
+    {
+        pt->c_player->xvel = 0;
+        pt->c_player->yvel = 0;
+    }
+
+    if (pt->c_player->xvel)
+    {
+        float x = pt->c_player->x + pt->c_player->xvel;
+
+        if (!checkPlayerPosition(
+            (int)x >> pt->level.t_bit_size, 
+            (int)pt->c_player->y >> pt->level.t_bit_size, 
+            pt->level.collision, 
+            pt->level.t_map_h)
+        )
+        {
+            if (!(x < 0 || x > pt->level.r.w)) pt->c_player->x = x;
+            else pt->c_player->xvel = 0;
+        }
+        else pt->c_player->xvel = 0;
+    }
+
+    if (pt->c_player->yvel)
+    {
+        float y = pt->c_player->y + pt->c_player->yvel;
+
+        if (!checkPlayerPosition(
+            (int)pt->c_player->x >> pt->level.t_bit_size, 
+            (int)y >> pt->level.t_bit_size, 
+            pt->level.collision, 
+            pt->level.t_map_h)
+        )
+        {
+            if (!(y < 0 || y > pt->level.r.h)) pt->c_player->y = y;
+            else pt->c_player->yvel = 0;
+        }
+        else pt->c_player->yvel = 0;
+    }
+
+    if (pt->network.localplayer != NULL)
+    {
+        if (pt->network.localplayer->id == HOST_ID)
+        {
+            updateNetHostGame(pt, plrs);
+        }
+        else 
+        {
+            updateNetClientGame(pt, plrs);
+        }
+
+        pt->network.localplayer->state = pt->c_player->state;
+        pt->network.localplayer->x = pt->c_player->x;
+        pt->network.localplayer->y = pt->c_player->y;
+    }
+
+    updatePuck(pt, plrs);
+
+    pt->rx = pt->puck.x;
+    pt->ry = pt->puck.y;
+
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            plrs[i].r.x = plrs[i].x - 10;
+            plrs[i].r.y = plrs[i].y;
+
+            if (plrs[i].state == PLR_SKATE_WP)
+            {
+                pt->rx = plrs[i].r.x;
+                pt->ry = plrs[i].r.y;
+            }
+
+            animatePlayer(&plrs[i]);
+        }
+    }
+}
+
+void updateNetPlayers(P_TEST *pt, P plrs[])
+{
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            for (unsigned char j = 0; j < pt->network.numplayers; j++)
+            {
+                if (plrs[i].id == pt->network.players_net[j].id)
+                {
+                    if (pt->network.players_net[j].id != pt->c_player->id)
+                    {
+                        plrs[i].state = pt->network.players_net[j].state;
+                        plrs[i].x = pt->network.players_net[j].x;
+                        plrs[i].y = pt->network.players_net[j].y;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void updateNetHostGame(P_TEST *pt, P plrs[])
+{
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            switch (plrs[i].state)
+            {
+                default: break;
+                case PLR_SKATE_NP:
+                    if (!pt->puck.grab && !pt->puck.hit)
+                    {
+                        if (checkCollision(plrs[i].r, pt->puck.r))
+                        {
+                            if (plrs[i].id == HOST_ID)
+                            {
+                                pt->puck.grab = true;
+                                plrs[i].state = PLR_SKATE_WP;
+                            }
+                            else 
+                            {
+                                for (unsigned char j = 0; j < pt->network.numplayers; j++)
+                                {
+                                    if (plrs[i].id == pt->network.players_net[j].id  
+                                    && plrs[i].id != HOST_ID)
+                                    {
+                                        printf("PLAYER: %d pick up puck\n", plrs[i].id);
+                                        if (pt->network.players_net[j].state == PLR_SKATE_WP)
+                                        {
+                                            pt->puck.grab = true;
+                                            //plrs[i].state = PLR_SKATE_WP;
+                                        }
+                                        plrs[i].state = PLR_SKATE_WP;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                break;
+                case PLR_SKATE_WP:
+                    if (!pt->puck.grab && !pt->puck.hit)
+                    {
+                        if (checkCollision(plrs[i].r, pt->puck.r))
+                        {
+                            pt->puck.grab = true;
+                        }
+                    }
+                break;
+                case PLR_SHOOT:
+                    shootPuck(
+                        &pt->puck, 
+                        plrs[i].pvel, 
+                        plrs[i].x, 
+                        plrs[i].y, 
+                        plrs[i].AIM_angle
+                    );
+
+                    plrs[i].state = PLR_SKATE_NP;
+                    pt->PUCK_freeze = true;
+                    Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                break;
+            }
+
+            for (unsigned char j = 0; j < pt->network.numplayers; j++)
+            {
+                if (plrs[i].id == pt->network.players_net[j].id 
+                && plrs[i].id != HOST_ID)
+                {
+                    pt->network.players_net[j].state = plrs[i].state;
+                }
+            }
+        }
+    }
+}
+
+void updateNetClientGame(P_TEST *pt, P plrs[])
+{
+    if (pt->network.pgrab)
+    {
+        pt->network.pgrab = false;
+        pt->puck.grab = true;
+        pt->c_player->state = PLR_SKATE_WP;
+    }
+
+    if (!pt->puck.grab && !pt->puck.hit)
+    {
+        if (checkCollision(pt->c_player->r, pt->puck.r))
+        {
+            pt->c_player->state = PLR_SKATE_WP;
+        }
+    }
+
+    if (pt->network.localplayer->state == PLR_SHOOT)
+    {
+        shootPuck(
+            &pt->puck, 
+            pt->c_player->pvel, 
+            pt->c_player->x, 
+            pt->c_player->y, 
+            pt->c_player->AIM_angle
+        );
+        
+        pt->c_player->state = PLR_SKATE_NP;
+        //pt->PUCK_freeze = true;
+        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
     }
 }
 
@@ -2958,6 +3411,7 @@ void setupPlay(P_TEST *pt, P *player)
     pt->puck.xvel = 0;
     pt->puck.yvel = 0;
     pt->puck.hit = false;
+    pt->puck.grab = false;
     pt->puck.hit_counter = 0;
 
     pt->c_player->r.x = pt->c_player->x - pt->camera.x;
@@ -3146,6 +3600,7 @@ void resetPuck(Puck *p, int mx, int my)
     p->fvelx = 0.01f;
     p->fvely = 0.01f;
     p->hit = false;
+    p->grab = false;
     p->hit_counter = 0;
 }
 

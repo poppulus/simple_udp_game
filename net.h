@@ -5,8 +5,10 @@
 #define HOST_PACKET 0
 #define PEER_PACKET 1
 
+#define HOST_ID 1
+
 #define MAX_NET_USERS 2
-#define NET_BUFFER_PRESET 11
+#define NET_BUFFER_PRESET 7
 #define NET_BUFFER_SIZE 64
 
 enum NET_STATUS
@@ -23,17 +25,27 @@ enum NET_DATA
     NET_ID,
     NET_NUSERS,
     NET_PUCKDATA,
-    NET_USERDATA = 11
+    NET_USERID = 7,
+    NET_USERSTATUS,
+    NET_USERPOS
+};
+
+enum P_NET_STATE
+{
+    PNET_NONE,
+    PNET_GRAB,
+    PNET_SHOOT
 };
 
 typedef struct Puck_Net
 {
-    int x, y;
+    short x, y;
 } PUCK_NET;
 
 typedef struct Player_Net
 {
-    int id, x, y;
+    unsigned char id, state;
+    short x, y;
 } P_NET;
 
 typedef struct Local_User
@@ -67,7 +79,7 @@ typedef struct NETWORKING
     P_NET *localplayer;
     PUCK_NET puck;
     unsigned char numusers, numplayers;
-    int lost:1, pquit:1, join:1, left:1;
+    int lost:1, pquit:1, join:1, left:1, pgrab:1;
 } NET;
 
 void closeNet(NET *net);
@@ -92,7 +104,7 @@ UDPconnection *createNewConnection(
 void addUser(UDPuser *user, char id, int host, unsigned short port);
 void removeUser(UDPuser *user);
 
-void addPlayerNet(P_NET *p, int id);
+void addPlayerNet(P_NET *p, int id, int grab);
 void removePlayerNet(P_NET *p);
 
 void resetUser(UDPuser *u);
@@ -111,8 +123,8 @@ void clientHandleDisconnect();
 void clientHandleNewId();
 void clientHandlePlay(P_NET *players, UDPpacket *packet, unsigned char *numplayers);
 
-void clientHandleNewUser(P_NET *plrs, int *buf, int pkg_len, unsigned char *numplayers);
-void clientHandleLostUser(P_NET *plrs, int *buf, int pkg_len, unsigned char *numplayers);
+void clientHandleNewUser(P_NET *plrs, unsigned char *buf, int pkg_len, unsigned char *numplayers);
+void clientHandleLostUser(P_NET *plrs, unsigned char *buf, int pkg_len, unsigned char *numplayers);
 
 void clientSendConnect();
 void clientSendDisconnect();

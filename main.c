@@ -152,7 +152,8 @@ int main(int argc, const char *argv[])
                                     }
                                 break;
                                 default: 
-                                    inputsGame(&play_test, e);
+                                    if (play_test.is_net) inputsNetGame(&play_test, e);
+                                    else inputsGame(&play_test, e);
                                 break;
                             }
 

@@ -216,7 +216,7 @@ typedef struct Player
 typedef struct Puck
 {
     SDL_Rect r;
-    bool hit:1;
+    bool hit:1, grab:1;
     unsigned char hit_counter;
     float x, y, xvel, yvel, fvel, fvelx, fvely;
 } Puck;
@@ -305,8 +305,6 @@ void initGoalkeeper(P_G *g);
 void setCamera(SDL_Rect *c, int x, int y);
 void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s);
 
-void setPuckBounce();
-
 void setupPlay(P_TEST *pt, P *player);
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep);
 void setupGoals(SDL_Rect *r);
@@ -330,15 +328,26 @@ void updateGame(P_TEST *pt, P players[]);
 void updateGameDrop(P_TEST *pt, P players[]);
 void updateGamePlay(P_TEST *pt, P players[]);
 void updateGameGoal(P_TEST *pt, P players[]);
+
 void updatePlayer(P *p, P_TEST *pt);
+void updatePuck(P_TEST *pt, P players[]);
+void updateGoalKeepers(P_TEST *pt, P players[], bool grab);
 
 void updateLocalGame(P_TEST *pt, P players[]);
 void updateHostGame(P_TEST *pt, P plrs[]);
 void updateClientGame(P_TEST *pt, P plrs[]);
 
+void updateNetGame(P_TEST *pt, P plrs[]);
+void updateNetPlayers(P_TEST *pt, P plrs[]);
+
+void updateNetHostGame(P_TEST *pt, P plrs[]);
+void updateNetClientGame(P_TEST *pt, P plrs[]);
+
 void inputsGame(P_TEST *pt, SDL_Event ev);
 void inputsJoin(P_TEST *pt, SDL_Event ev);
 void inputsHost(P_TEST *pt, SDL_Event ev);
+
+void inputsNetGame(P_TEST *pt, SDL_Event ev);
 
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
 
