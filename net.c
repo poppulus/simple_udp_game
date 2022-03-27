@@ -2,7 +2,7 @@
 
 void closeNet(NET *net)
 {
-    net->pquit = 1;
+    net->tquit = 1;
     net->lost = 1;
 
     printf("NET: wait on thread if any\n");
@@ -14,7 +14,7 @@ void closeNet(NET *net)
         printf("THREAD: kill\n");
     }
 
-    net->pquit = 0;
+    net->tquit = 0;
     net->lost = 0;
 
     printf("NET: close socket\n");
@@ -83,7 +83,7 @@ int startNetHost(NET *net, int port)
         if ((net->thread = SDL_CreateThread(host_thread, "host", net)) == NULL)
         {
             printf("ERROR: SDL_CreateThread, %s\n", SDL_GetError());
-            net->pquit = 1;
+            net->tquit = 1;
             net->lost = 1;
             closeNet(net);
             success = 0;
@@ -120,7 +120,7 @@ int startNetClient(NET *net, const char *string)
         if ((net->thread = SDL_CreateThread(client_thread, "client", net)) == NULL)
         {
             printf("ERROR: SDL_CreateThread, %s\n", SDL_GetError());
-            net->pquit = 1;
+            net->tquit = 1;
             net->lost = 1;
             closeNet(net);
             success = 0;
@@ -138,10 +138,9 @@ void initNet(NET *net)
     net->numplayers = 0;
 
     net->lost = 0;
-    net->pquit = 0;
+    net->tquit = 0;
     net->join = 0;
     net->left = 0;
-    net->pgrab = 0;
 
     net->thread = NULL;
     net->users = NULL;
@@ -278,7 +277,7 @@ int host_thread(void *ptr)
 
     printf("plrs %d usrs %d\n", net->numplayers, net->numusers);
 
-    while (!quit && !net->pquit)
+    while (!quit && !net->tquit)
     {
         timer = SDL_GetTicks64();
 
@@ -415,12 +414,12 @@ int host_thread(void *ptr)
         if (recv == -1)
         {
             printf("NET: error on receive\n");
-            net->pquit = 1;
+            net->tquit = 1;
         }
         else if (!send)
         {
             printf("NET: error on send\n");
-            net->pquit = 1;
+            net->tquit = 1;
         }
         
         memset(
@@ -494,12 +493,12 @@ int client_thread(void *ptr)
     unsigned long timer = 0, response_timer = SDL_GetTicks64();
     long timeout = 0;
 
-    short *puck_buffer = NULL, 
-          *user_pos_buf = NULL;
+    short   *puck_buffer = NULL, 
+            *user_pos_buf = NULL;
 
     unsigned char *user_buffer = NULL;
 
-    while (!net->lost && !net->pquit)
+    while (!net->lost && !net->tquit)
     {
         timer = SDL_GetTicks64();
 
@@ -560,6 +559,7 @@ int client_thread(void *ptr)
                         user_buffer = (unsigned char *)&net->connection.pks[HOST_PACKET]->data[NET_USERID];
                         pkg_len = (net->connection.pks[HOST_PACKET]->len - NET_BUFFER_PRESET);
 
+                        net->puck.id = net->connection.pks[HOST_PACKET]->data[NET_PUCKID];
                         net->puck.x = puck_buffer[0];
                         net->puck.y = puck_buffer[1];
 
@@ -616,14 +616,6 @@ int client_thread(void *ptr)
                                     net->players_net[i].state = user_buffer[(i * sizeof(P_NET)) + 1];
                                     net->players_net[i].x = user_pos_buf[0];
                                     net->players_net[i].y = user_pos_buf[1];
-                                }
-                                else if (net->players_net[i].id == net->localuser.id)
-                                {
-                                    if (net->players_net[i].state == 0)
-                                    {
-                                        if (user_buffer[(i * sizeof(P_NET)) + 1] == 1)
-                                            net->pgrab = 1;
-                                    }
                                 }
                             }
                         }
@@ -1207,12 +1199,14 @@ void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, 
     p->data[NET_STATUS] = N_PLAY;
     p->data[NET_NUSERS] = nplrs;
 
-    memcpy((short *)&p->data[NET_PUCKDATA], &puck, 4);
+
+    memcpy((unsigned char *)&p->data[NET_PUCKID], &puck.id, 1);
+    memcpy((short *)&p->data[NET_PUCKDATA], &puck.x, 4);
 
     memcpy(
         (unsigned char *)&p->data[NET_USERID], 
         plrs, 
         sizeof(P_NET) * nplrs);
 
-    p->len = (sizeof(P_NET) * nplrs) + NET_BUFFER_PRESET;
+    p->len = (6 * nplrs) + NET_BUFFER_PRESET;
 }

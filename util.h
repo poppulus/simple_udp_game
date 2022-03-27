@@ -330,6 +330,9 @@ void updateGamePlay(P_TEST *pt, P players[]);
 void updateGameGoal(P_TEST *pt, P players[]);
 
 void updatePlayer(P *p, P_TEST *pt);
+void updatePlayerInputs(P *p);
+void updatePlayerX(P *p, L level);
+void updatePlayerY(P *p, L level);
 void updatePuck(P_TEST *pt, P players[]);
 void updateGoalKeepers(P_TEST *pt, P players[], bool grab);
 

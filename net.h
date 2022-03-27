@@ -8,7 +8,7 @@
 #define HOST_ID 1
 
 #define MAX_NET_USERS 2
-#define NET_BUFFER_PRESET 7
+#define NET_BUFFER_PRESET 8
 #define NET_BUFFER_SIZE 64
 
 enum NET_STATUS
@@ -24,8 +24,9 @@ enum NET_DATA
     NET_STATUS,
     NET_ID,
     NET_NUSERS,
+    NET_PUCKID,
     NET_PUCKDATA,
-    NET_USERID = 7,
+    NET_USERID = 8,
     NET_USERSTATUS,
     NET_USERPOS
 };
@@ -39,6 +40,7 @@ enum P_NET_STATE
 
 typedef struct Puck_Net
 {
+    unsigned char id;
     short x, y;
 } PUCK_NET;
 
@@ -79,7 +81,7 @@ typedef struct NETWORKING
     P_NET *localplayer;
     PUCK_NET puck;
     unsigned char numusers, numplayers;
-    int lost:1, pquit:1, join:1, left:1, pgrab:1;
+    int lost:1, tquit:1, join:1, left:1;
 } NET;
 
 void closeNet(NET *net);

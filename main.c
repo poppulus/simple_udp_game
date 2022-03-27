@@ -145,7 +145,7 @@ int main(int argc, const char *argv[])
                                             case SDL_KEYDOWN:
                                                 if (e.key.keysym.sym == SDLK_ESCAPE)
                                                 {
-                                                    play_test.network.pquit = true;
+                                                    play_test.network.tquit = true;
                                                 }
                                             break;
                                         }
@@ -168,7 +168,7 @@ int main(int argc, const char *argv[])
                         }
 
                         printf("NET: close if online\n");
-                        play_test.network.pquit = true;
+                        play_test.network.tquit = true;
                         play_test.network.lost = true;
                         closeNet(&play_test.network);
                     }

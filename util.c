@@ -157,7 +157,7 @@ bool initSdl(SDL_Window **w, SDL_Renderer **r)
     {
         //Create window
         *w = SDL_CreateWindow(
-            "Level Editor", 
+            "UDP Test Game", 
             SDL_WINDOWPOS_UNDEFINED, 
             SDL_WINDOWPOS_UNDEFINED, 
             W_WIDTH, W_HEIGHT, 
@@ -1188,7 +1188,7 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                                                 while (!pt->network.lost)
                                                 {
                                                     if ((SDL_GetTicks64() - timer) >= 1000) 
-                                                        pt->network.pquit = true;
+                                                        pt->network.tquit = true;
                                                 }
                                             }
                                             
@@ -1692,7 +1692,7 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                             while (!pt->network.lost)
                             {
                                 if ((SDL_GetTicks64() - timer) >= 1000) 
-                                    pt->network.pquit = true;
+                                    pt->network.tquit = true;
                             }
                         }
                         // disconnect from net here
@@ -1821,17 +1821,6 @@ void updateGame(P_TEST *pt, P players[])
 {
     if (pt->is_net)
     {
-        if (pt->network.localuser.id > 0)
-        {
-            pt->puck.x = pt->network.puck.x;
-            pt->puck.y = pt->network.puck.y;
-        }
-        else if (!pt->network.localuser.id)
-        {
-            pt->network.puck.x = pt->puck.x;
-            pt->network.puck.y = pt->puck.y;
-        }
-
         updateNetGame(pt, players);
 
         if (pt->network.join)
@@ -2613,6 +2602,90 @@ void updatePlayer(P *p, P_TEST *pt)
     }
 }
 
+void updatePlayerInputs(P *p)
+{
+    switch (*p->dir)
+    {
+        case KEY_LEFT:
+            if (p->input_q[1] == KEY_UP) 
+                p->INPUT_angle = I_UP_LEFT;
+            else if (p->input_q[1] == KEY_DOWN) 
+                p->INPUT_angle = I_DOWN_LEFT;
+            else 
+                p->INPUT_angle = INPUT_LEFT;
+
+            p->JOY_vel = 1;
+        break;
+        case KEY_RIGHT:
+            if (p->input_q[1] == KEY_UP) 
+                p->INPUT_angle = I_UP_RIGHT;
+            else if (p->input_q[1] == KEY_DOWN) 
+                p->INPUT_angle = I_DOWN_RIGHT;
+            else 
+                p->INPUT_angle = INPUT_RIGHT;
+
+            p->JOY_vel = 1;
+        break;
+        case KEY_UP:
+            if (p->input_q[1] == KEY_LEFT) 
+                p->INPUT_angle = I_UP_LEFT;
+            else if (p->input_q[1] == KEY_RIGHT) 
+                p->INPUT_angle = I_UP_RIGHT;
+            else 
+                p->INPUT_angle = INPUT_UP;
+
+            p->JOY_vel = 1;
+        break;
+        case KEY_DOWN:
+            if (p->input_q[1] == KEY_LEFT) 
+                p->INPUT_angle = I_DOWN_LEFT;
+            else if (p->input_q[1] == KEY_RIGHT) 
+                p->INPUT_angle = I_DOWN_RIGHT;
+            else 
+                p->INPUT_angle = INPUT_DOWN;
+
+            p->JOY_vel = 1;
+        break;
+        default:
+            p->JOY_vel = 0;
+        break;
+    }
+}
+
+void updatePlayerX(P *p, L level)
+{
+    float x = p->x + p->xvel;
+
+    if (!checkPlayerPosition(
+        (int)x >> level.t_bit_size, 
+        (int)p->y >> level.t_bit_size, 
+        level.collision, 
+        level.t_map_h)
+    )
+    {
+        if (!(x < 0 || x > level.r.w)) p->x = x;
+        else p->xvel = 0;
+    }
+    else p->xvel = 0;
+}
+
+void updatePlayerY(P *p, L level)
+{
+    float y = p->y + p->yvel;
+
+    if (!checkPlayerPosition(
+        (int)p->x >> level.t_bit_size, 
+        (int)y >> level.t_bit_size, 
+        level.collision, 
+        level.t_map_h)
+    )
+    {
+        if (!(y < 0 || y > level.r.h)) p->y = y;
+        else p->yvel = 0;
+    }
+    else p->yvel = 0;
+}
+
 void updatePuck(P_TEST *pt, P players[])
 {
     if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
@@ -2621,7 +2694,7 @@ void updatePuck(P_TEST *pt, P players[])
         pt->PUCK_freeze_timer = 0;
     }
 
-    if (pt->puck.hit && (++pt->puck.hit_counter > 16)) 
+    if (pt->puck.hit && (++pt->puck.hit_counter > 15)) 
     {
         pt->puck.hit = false;
         pt->puck.hit_counter = 0;
@@ -3050,138 +3123,17 @@ void updateClientGame(P_TEST *pt, P plrs[])
 
 void updateNetGame(P_TEST *pt, P plrs[])
 {
-    if (!pt->network.localuser.id)
-    {
-        if (!plrs[pt->network.numplayers - 1].id)
-        {
-            if (pt->network.players_net[pt->network.numplayers - 1].id)
-            {
-                plrs[pt->network.numplayers - 1].id = (
-                    pt->network.players_net[pt->network.numplayers - 1].id);
-
-                plrs[pt->network.numplayers - 1].spawned = true;
-
-                printf("PLAYER: id %d\n", plrs[pt->network.numplayers - 1].id);
-            }
-        }
-    }
-
-    updateNetPlayers(pt, plrs);
-
-    switch (*pt->c_player->dir)
-    {
-        case KEY_LEFT:
-            if (pt->c_player->input_q[1] == KEY_UP) 
-                pt->c_player->INPUT_angle = I_UP_LEFT;
-            else if (pt->c_player->input_q[1] == KEY_DOWN) 
-                pt->c_player->INPUT_angle = I_DOWN_LEFT;
-            else 
-                pt->c_player->INPUT_angle = INPUT_LEFT;
-
-            pt->c_player->JOY_vel = 1;
-        break;
-        case KEY_RIGHT:
-            if (pt->c_player->input_q[1] == KEY_UP) 
-                pt->c_player->INPUT_angle = I_UP_RIGHT;
-            else if (pt->c_player->input_q[1] == KEY_DOWN) 
-                pt->c_player->INPUT_angle = I_DOWN_RIGHT;
-            else 
-                pt->c_player->INPUT_angle = INPUT_RIGHT;
-
-            pt->c_player->JOY_vel = 1;
-        break;
-        case KEY_UP:
-            if (pt->c_player->input_q[1] == KEY_LEFT) 
-                pt->c_player->INPUT_angle = I_UP_LEFT;
-            else if (pt->c_player->input_q[1] == KEY_RIGHT) 
-                pt->c_player->INPUT_angle = I_UP_RIGHT;
-            else 
-                pt->c_player->INPUT_angle = INPUT_UP;
-
-            pt->c_player->JOY_vel = 1;
-        break;
-        case KEY_DOWN:
-            if (pt->c_player->input_q[1] == KEY_LEFT) 
-                pt->c_player->INPUT_angle = I_DOWN_LEFT;
-            else if (pt->c_player->input_q[1] == KEY_RIGHT) 
-                pt->c_player->INPUT_angle = I_DOWN_RIGHT;
-            else 
-                pt->c_player->INPUT_angle = INPUT_DOWN;
-
-            pt->c_player->JOY_vel = 1;
-        break;
-        default:
-            pt->c_player->JOY_vel = 0;
-        break;
-    }
-
-    if (pt->c_player->JOY_vel)
-    {
-        float   cos = (
-            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
-                sin = (
-            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
-
-        pt->c_player->xvel = cos;
-        pt->c_player->yvel = sin;
-    }
-    else
-    {
-        pt->c_player->xvel = 0;
-        pt->c_player->yvel = 0;
-    }
-
-    if (pt->c_player->xvel)
-    {
-        float x = pt->c_player->x + pt->c_player->xvel;
-
-        if (!checkPlayerPosition(
-            (int)x >> pt->level.t_bit_size, 
-            (int)pt->c_player->y >> pt->level.t_bit_size, 
-            pt->level.collision, 
-            pt->level.t_map_h)
-        )
-        {
-            if (!(x < 0 || x > pt->level.r.w)) pt->c_player->x = x;
-            else pt->c_player->xvel = 0;
-        }
-        else pt->c_player->xvel = 0;
-    }
-
-    if (pt->c_player->yvel)
-    {
-        float y = pt->c_player->y + pt->c_player->yvel;
-
-        if (!checkPlayerPosition(
-            (int)pt->c_player->x >> pt->level.t_bit_size, 
-            (int)y >> pt->level.t_bit_size, 
-            pt->level.collision, 
-            pt->level.t_map_h)
-        )
-        {
-            if (!(y < 0 || y > pt->level.r.h)) pt->c_player->y = y;
-            else pt->c_player->yvel = 0;
-        }
-        else pt->c_player->yvel = 0;
-    }
-
     if (pt->network.localplayer != NULL)
     {
         if (pt->network.localplayer->id == HOST_ID)
-        {
             updateNetHostGame(pt, plrs);
-        }
         else 
-        {
             updateNetClientGame(pt, plrs);
-        }
-
+        
         pt->network.localplayer->state = pt->c_player->state;
         pt->network.localplayer->x = pt->c_player->x;
         pt->network.localplayer->y = pt->c_player->y;
     }
-
-    updatePuck(pt, plrs);
 
     pt->rx = pt->puck.x;
     pt->ry = pt->puck.y;
@@ -3220,6 +3172,30 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
                         plrs[i].x = pt->network.players_net[j].x;
                         plrs[i].y = pt->network.players_net[j].y;
                     }
+                    else if (pt->network.players_net[j].id == pt->c_player->id)
+                    {
+                        if (pt->network.players_net[j].state == PLR_SHOOT)
+                        {
+                            printf("PLAYER: %d shoot from host\n", pt->c_player->id);
+                            plrs[i].state = PLR_SKATE_NP;
+                            pt->puck.grab = false;
+                        }
+                    }
+
+                    if (plrs[i].id == pt->network.puck.id)
+                    {
+                        if (plrs[i].state == PLR_SKATE_NP)
+                            plrs[i].state = PLR_SKATE_WP;
+
+                        pt->puck.grab = true;
+                    }
+                    else if (!pt->network.puck.id)
+                    {
+                        if (plrs[i].state == PLR_SKATE_WP)
+                            plrs[i].state = PLR_SKATE_NP;
+
+                        pt->puck.grab = false;
+                    }
                 }
             }
         }
@@ -3228,6 +3204,66 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
 
 void updateNetHostGame(P_TEST *pt, P plrs[])
 {
+    if (!plrs[pt->network.numplayers - 1].id)
+    {
+        if (pt->network.players_net[pt->network.numplayers - 1].id)
+        {
+            plrs[pt->network.numplayers - 1].id = (
+                pt->network.players_net[pt->network.numplayers - 1].id);
+
+            plrs[pt->network.numplayers - 1].spawned = true;
+
+            printf("PLAYER: id %d\n", plrs[pt->network.numplayers - 1].id);
+        }
+    }
+
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            for (unsigned char j = 0; j < pt->network.numplayers; j++)
+            {
+                if (plrs[i].id == pt->network.players_net[j].id)
+                {
+                    if (pt->network.players_net[j].id != pt->c_player->id)
+                    {
+                        if (!(pt->network.players_net[j].state == PLR_SKATE_WP && !pt->puck.grab))
+                            plrs[i].state = pt->network.players_net[j].state;
+                        else 
+                            plrs[i].state = PLR_SKATE_NP;
+
+                        plrs[i].x = pt->network.players_net[j].x;
+                        plrs[i].y = pt->network.players_net[j].y;
+                    }
+                }
+            }
+        }
+    }
+
+    updatePlayerInputs(pt->c_player);
+
+    if (pt->c_player->JOY_vel)
+    {
+        float   cos = (
+            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
+                sin = (
+            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
+
+        pt->c_player->xvel = cos;
+        pt->c_player->yvel = sin;
+    }
+    else
+    {
+        pt->c_player->xvel = 0;
+        pt->c_player->yvel = 0;
+    }
+
+    if (pt->c_player->xvel) 
+        updatePlayerX(pt->c_player, pt->level);
+
+    if (pt->c_player->yvel) 
+        updatePlayerY(pt->c_player, pt->level);
+
     for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
     {
         if (plrs[i].spawned)
@@ -3240,99 +3276,138 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                     {
                         if (checkCollision(plrs[i].r, pt->puck.r))
                         {
-                            if (plrs[i].id == HOST_ID)
-                            {
-                                pt->puck.grab = true;
-                                plrs[i].state = PLR_SKATE_WP;
-                            }
-                            else 
-                            {
-                                for (unsigned char j = 0; j < pt->network.numplayers; j++)
-                                {
-                                    if (plrs[i].id == pt->network.players_net[j].id  
-                                    && plrs[i].id != HOST_ID)
-                                    {
-                                        printf("PLAYER: %d pick up puck\n", plrs[i].id);
-                                        if (pt->network.players_net[j].state == PLR_SKATE_WP)
-                                        {
-                                            pt->puck.grab = true;
-                                            //plrs[i].state = PLR_SKATE_WP;
-                                        }
-                                        plrs[i].state = PLR_SKATE_WP;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                break;
-                case PLR_SKATE_WP:
-                    if (!pt->puck.grab && !pt->puck.hit)
-                    {
-                        if (checkCollision(plrs[i].r, pt->puck.r))
-                        {
+                            printf("PLAYER: %d pick up puck\n", plrs[i].id);
                             pt->puck.grab = true;
+                            plrs[i].state = PLR_SKATE_WP;
+                            pt->network.puck.id = plrs[i].id;
                         }
                     }
                 break;
                 case PLR_SHOOT:
-                    shootPuck(
-                        &pt->puck, 
-                        plrs[i].pvel, 
-                        plrs[i].x, 
-                        plrs[i].y, 
-                        plrs[i].AIM_angle
-                    );
+                    if (!pt->puck.hit)
+                    {
+                        printf("PLAYER: %d shoot puck\n", plrs[i].id);
+                    
+                        shootPuck(
+                            &pt->puck, 
+                            plrs[i].pvel, 
+                            plrs[i].x, 
+                            plrs[i].y, 
+                            plrs[i].AIM_angle
+                        );
 
-                    plrs[i].state = PLR_SKATE_NP;
-                    pt->PUCK_freeze = true;
-                    Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                        pt->PUCK_freeze = true;
+                        
+                        plrs[i].state = PLR_SKATE_NP;
+                        pt->network.puck.id = 0;
+
+                        //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                    }
                 break;
             }
 
             for (unsigned char j = 0; j < pt->network.numplayers; j++)
             {
-                if (plrs[i].id == pt->network.players_net[j].id 
-                && plrs[i].id != HOST_ID)
+                if (plrs[i].id == pt->network.players_net[j].id)
                 {
                     pt->network.players_net[j].state = plrs[i].state;
                 }
             }
         }
     }
+
+    updatePuck(pt, plrs);
+
+    pt->network.puck.x = pt->puck.x;
+    pt->network.puck.y = pt->puck.y;
 }
 
 void updateNetClientGame(P_TEST *pt, P plrs[])
 {
+    pt->puck.x = pt->network.puck.x;
+    pt->puck.y = pt->network.puck.y;
+
+    pt->puck.r.x = pt->puck.x;
+    pt->puck.r.y = pt->puck.y;
+
+    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
+    {
+        pt->PUCK_freeze = false;
+        pt->PUCK_freeze_timer = 0;
+    }
+
+    if (pt->puck.hit && (++pt->puck.hit_counter > 60)) 
+    {
+        pt->puck.hit = false;
+        pt->puck.hit_counter = 0;
+    }
+
+    updateNetPlayers(pt, plrs);
+
+    /*
     if (pt->network.pgrab)
     {
         pt->network.pgrab = false;
-        pt->puck.grab = true;
-        pt->c_player->state = PLR_SKATE_WP;
-    }
-
-    if (!pt->puck.grab && !pt->puck.hit)
-    {
-        if (checkCollision(pt->c_player->r, pt->puck.r))
+        pt->network.pshoot = false;
+        if (pt->network.localplayer->state == PLR_SKATE_NP)
         {
-            pt->c_player->state = PLR_SKATE_WP;
+            if (!pt->puck.grab && !pt->puck.hit)
+            {
+                pt->puck.grab = true;
+                pt->c_player->state = PLR_SKATE_WP;
+            }
+        }
+    }
+    else if (pt->network.pshoot)
+    {
+        pt->network.pshoot = false;
+        pt->network.pgrab = false;
+        if (pt->network.localplayer->state == PLR_SHOOT)
+        {
+            pt->puck.hit = true;
+            pt->puck.grab = false;
+            
+            pt->c_player->state = PLR_SKATE_NP;
+            pt->PUCK_freeze = true;
+            //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
         }
     }
 
-    if (pt->network.localplayer->state == PLR_SHOOT)
+    if (pt->network.localplayer->state == PLR_SKATE_NP)
     {
-        shootPuck(
-            &pt->puck, 
-            pt->c_player->pvel, 
-            pt->c_player->x, 
-            pt->c_player->y, 
-            pt->c_player->AIM_angle
-        );
-        
-        pt->c_player->state = PLR_SKATE_NP;
-        //pt->PUCK_freeze = true;
-        Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+        if (!pt->puck.grab && !pt->puck.hit)
+        {
+            if (checkCollision(pt->c_player->r, pt->puck.r))
+            {
+                pt->c_player->state = PLR_SKATE_WP;
+            }
+        }
     }
+    */
+
+    updatePlayerInputs(pt->c_player);
+
+    if (pt->c_player->JOY_vel)
+    {
+        float   cos = (
+            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
+                sin = (
+            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
+
+        pt->c_player->xvel = cos;
+        pt->c_player->yvel = sin;
+    }
+    else
+    {
+        pt->c_player->xvel = 0;
+        pt->c_player->yvel = 0;
+    }
+
+    if (pt->c_player->xvel) 
+        updatePlayerX(pt->c_player, pt->level);
+
+    if (pt->c_player->yvel) 
+        updatePlayerY(pt->c_player, pt->level);
 }
 
 void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy)
