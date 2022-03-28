@@ -447,6 +447,8 @@ void freePlayer(P p[])
 
 void freePlayTest(P_TEST *ptest)
 {
+    ptest->plr_hud = NULL;
+
     freeTexture(&ptest->texture);
 
     printf("free texture map\n");
@@ -544,7 +546,7 @@ void initPlayer(P *p, L level, unsigned char buffer[])
 
     p->sprint = false;
     p->sprint_cdown = false;
-    p->spawned = true;
+    p->spawned = false;
     p->m_hold = false;
     p->m_move = false;
     p->bounce = false;
@@ -670,6 +672,8 @@ void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s)
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 {
+    unsigned char i = 0;
+
     // background 
     SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
     SDL_RenderFillRect(r, &pt->screen);
@@ -684,9 +688,22 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
         SDL_RenderFillRect(r, &pt->sprint_hud_r);
     }
 
-    unsigned char i = 0;
+    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+    SDL_RenderDrawRects(r, pt->plr_hud, 4);
 
-    for (; i < 2; i++)
+    for (; i < MAX_GAME_USERS; i++)
+    {
+        if (players[i].spawned)
+        {
+            FC_DrawColor(
+                f, r, 
+                pt->plr_hud[i].x + 16, pt->plr_hud[i].y + 4,
+                FC_MakeColor(0xff, 0xff, 0x00, 0xff),
+                "P%d", i + 1);
+        }
+    }
+
+    for (i = 0; i < 2; i++)
     {
         SDL_Rect gq = {
             pt->goal_r[i].x - pt->camera.x, 
@@ -1657,6 +1674,39 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                                 pt->c_player->state = PLR_SHOOT;
                             }
                         break;
+                        case SDLK_LSHIFT:
+                            if (pt->c_player->state == PLR_SKATE_NP)
+                            {
+                                pt->c_player->gvel = SPRINT_VELOCITY;
+                                pt->c_player->state = PLR_SPRINT;
+                            }
+                        break;
+                        case SDLK_RSHIFT:
+                            if (pt->c_player->state == PLR_SKATE_NP && pt->c_player->JOY_vel)
+                            {
+                                pt->c_player->state = PLR_BLOCK;
+                                pt->c_player->gvel += STANDARD_VELOCITY * 0.5f;
+                                switch (pt->c_player->facing)
+                                {
+                                    case FACING_DOWN:
+                                        pt->c_player->r.w = 16;
+                                        pt->c_player->r.h = 30;
+                                    break;
+                                    case FACING_UP:
+                                        pt->c_player->r.w = 16;
+                                        pt->c_player->r.h = 30;
+                                    break;
+                                    case FACING_RIGHT:
+                                        pt->c_player->r.w = 30;
+                                        pt->c_player->r.h = 16;
+                                    break;
+                                    case FACING_LEFT:
+                                        pt->c_player->r.w = 30;
+                                        pt->c_player->r.h = 16;
+                                    break;
+                                }
+                            }
+                        break;
                     }
                 }
             break;
@@ -1698,6 +1748,8 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                         // disconnect from net here
                         closeNet(&pt->network);
                         pt->is_net = false;
+
+                        resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
 
                         for (unsigned i = 0; i < MAX_GAME_USERS; i++)
                         {
@@ -1869,6 +1921,17 @@ void updateGame(P_TEST *pt, P players[])
                 if (!n)
                 {
                     printf("PLAYER: found lost id:%d\n", players[i].id);
+
+                    if (pt->network.puck.id == players[i].id)
+                    {
+                        pt->puck.x = players[i].x;
+                        pt->puck.y = players[i].y;
+                        pt->network.puck.x = players[i].x;
+                        pt->network.puck.y = players[i].y;
+                        pt->network.puck.id = 0;
+                        pt->puck.grab = false;
+                    }
+
                     removePlayerGame(&players[i]);
                 }
 
@@ -1907,18 +1970,23 @@ void updateGame(P_TEST *pt, P players[])
         lerp(
             pt->camera.x + (pt->camera.w >> 1), 
             pt->rx, 0.08f), 
+        (pt->level.r.h >> 1)
+        /*
         lerp(
             pt->camera.y + (pt->camera.h >> 1), 
             pt->ry, 0.08f)
+        */
     );
 
     if (pt->camera.x < 0) pt->camera.x = 0;
     else if ((pt->camera.x + W_WIDTH) > pt->level.r.w) 
         pt->camera.x = pt->level.r.w - W_WIDTH;
 
+    /*
     if (pt->camera.y > 0) pt->camera.y = 0;
     else if ((pt->camera.y + W_HEIGHT) < pt->level.r.h) 
         pt->camera.y = pt->level.r.h - W_HEIGHT;
+    */
 }
 
 void updateGameDrop(P_TEST *pt, P players[])
@@ -3142,8 +3210,33 @@ void updateNetGame(P_TEST *pt, P plrs[])
     {
         if (plrs[i].spawned)
         {
-            plrs[i].r.x = plrs[i].x - 10;
-            plrs[i].r.y = plrs[i].y;
+            if (plrs[i].state == PLR_BLOCK)
+            {
+                switch (plrs[i].facing)
+                {
+                    case FACING_DOWN:
+                        plrs[i].r.x = plrs[i].x - 8;
+                        plrs[i].r.y = plrs[i].y;
+                    break;
+                    case FACING_UP:
+                        plrs[i].r.x = plrs[i].x - 8;
+                        plrs[i].r.y = plrs[i].y - 10;
+                    break;
+                    case FACING_RIGHT:
+                        plrs[i].r.x = plrs[i].x - 10;
+                        plrs[i].r.y = plrs[i].y + 5;
+                    break;
+                    case FACING_LEFT:
+                        plrs[i].r.x = plrs[i].x - 20;
+                        plrs[i].r.y = plrs[i].y + 5;
+                    break;
+                }
+            }
+            else 
+            {
+                plrs[i].r.x = plrs[i].x - 10;
+                plrs[i].r.y = plrs[i].y;
+            }
 
             if (plrs[i].state == PLR_SKATE_WP)
             {
@@ -3240,22 +3333,25 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
         }
     }
 
-    updatePlayerInputs(pt->c_player);
+    if (pt->c_player->state != PLR_BLOCK) updatePlayerInputs(pt->c_player);
 
     if (pt->c_player->JOY_vel)
     {
         float   cos = (
-            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
+            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->gvel * pt->c_player->JOY_vel),
                 sin = (
-            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
+            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->gvel * pt->c_player->JOY_vel);
 
         pt->c_player->xvel = cos;
         pt->c_player->yvel = sin;
     }
     else
     {
-        pt->c_player->xvel = 0;
-        pt->c_player->yvel = 0;
+        if (pt->c_player->state != PLR_SPRINT)
+        {
+            pt->c_player->xvel = 0;
+            pt->c_player->yvel = 0;
+        }
     }
 
     if (pt->c_player->xvel) 
@@ -3304,6 +3400,36 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                         //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
                     }
                 break;
+                case PLR_SPRINT:
+                    if (plrs[i].id == HOST_ID)
+                    {
+                        printf("PLAYER: local user is sprinting\n");
+                        if ((++plrs[i].sprint_cdown_timer) > 60)
+                        {
+                            plrs[i].sprint_cdown_timer = 0;
+                            plrs[i].gvel = STANDARD_VELOCITY;
+                            plrs[i].state = PLR_SKATE_NP;
+                        }
+                    }
+                break;
+                case PLR_BLOCK:
+                    if (plrs[i].id == HOST_ID)
+                    {
+                        plrs[i].JOY_vel = 1;
+
+                        if ((plrs[i].gvel -= 0.05f) < 0) plrs[i].gvel = 0;
+
+                        if ((++pt->c_player->block_timer) > 60)
+                        {
+                            plrs[i].block_timer = 0;
+                            plrs[i].bounce = false;
+                            plrs[i].gvel = STANDARD_VELOCITY;
+                            plrs[i].r.w = 20;
+                            plrs[i].r.h = 20;
+                            plrs[i].state = PLR_SKATE_NP;
+                        }
+                    }
+                break;
             }
 
             for (unsigned char j = 0; j < pt->network.numplayers; j++)
@@ -3329,18 +3455,6 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
 
     pt->puck.r.x = pt->puck.x;
     pt->puck.r.y = pt->puck.y;
-
-    if (pt->PUCK_freeze && (++pt->PUCK_freeze_timer > 4))
-    {
-        pt->PUCK_freeze = false;
-        pt->PUCK_freeze_timer = 0;
-    }
-
-    if (pt->puck.hit && (++pt->puck.hit_counter > 60)) 
-    {
-        pt->puck.hit = false;
-        pt->puck.hit_counter = 0;
-    }
 
     updateNetPlayers(pt, plrs);
 
@@ -3385,22 +3499,25 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
     }
     */
 
-    updatePlayerInputs(pt->c_player);
+    if (pt->c_player->state != PLR_BLOCK) updatePlayerInputs(pt->c_player);
 
     if (pt->c_player->JOY_vel)
     {
         float   cos = (
-            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel),
+            SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->gvel * pt->c_player->JOY_vel),
                 sin = (
-            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->vel * pt->c_player->JOY_vel);
+            SDL_sin(pt->c_player->INPUT_angle) * pt->c_player->gvel * pt->c_player->JOY_vel);
 
         pt->c_player->xvel = cos;
         pt->c_player->yvel = sin;
     }
     else
     {
-        pt->c_player->xvel = 0;
-        pt->c_player->yvel = 0;
+        if (pt->c_player->state != PLR_SPRINT)
+        {
+            pt->c_player->xvel = 0;
+            pt->c_player->yvel = 0;
+        }
     }
 
     if (pt->c_player->xvel) 
@@ -3408,6 +3525,36 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
 
     if (pt->c_player->yvel) 
         updatePlayerY(pt->c_player, pt->level);
+
+    
+    switch (pt->c_player->state)
+    {
+        default: break;
+        case PLR_SPRINT:
+            printf("PLAYER: local user is sprinting\n");
+            if ((++pt->c_player->sprint_cdown_timer) > 60)
+            {
+                pt->c_player->sprint_cdown_timer = 0;
+                pt->c_player->gvel = STANDARD_VELOCITY;
+                pt->c_player->state = PLR_SKATE_NP;
+            }
+        break;
+        case PLR_BLOCK:
+            pt->c_player->JOY_vel = 1;
+
+            if ((pt->c_player->gvel -= 0.05f) < 0) pt->c_player->gvel = 0;
+
+            if ((++pt->c_player->block_timer) > 60)
+            {
+                pt->c_player->block_timer = 0;
+                pt->c_player->bounce = false;
+                pt->c_player->gvel = STANDARD_VELOCITY;
+                pt->c_player->r.w = 20;
+                pt->c_player->r.h = 20;
+                pt->c_player->state = PLR_SKATE_NP;
+            }
+        break;
+    }
 }
 
 void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy)
@@ -3466,6 +3613,8 @@ void setupPlay(P_TEST *pt, P *player)
 {
     pt->players = player;
     pt->c_player = player;
+
+    pt->c_player->spawned = true;
 
     pt->camera.x = pt->c_player->x - (pt->camera.w >> 1);
     pt->camera.y = pt->c_player->y - (pt->camera.h >> 1);
@@ -3584,8 +3733,32 @@ void setupGoalKeepers(SDL_Rect *r, P_G *goalie)
     }
 }
 
+void setupPlayerHud(SDL_Rect r[])
+{
+    r[0].w = 64;
+    r[0].h = 64;
+    r[0].x = 0;
+    r[0].y = 0;
+
+    r[1].w = 64;
+    r[1].h = 64;
+    r[1].x = W_WIDTH - 64;
+    r[1].y = 0;
+
+    r[2].w = 64;
+    r[2].h = 64;
+    r[2].x = 0;
+    r[2].y = W_HEIGHT - 64;
+
+    r[3].w = 64;
+    r[3].h = 64;
+    r[3].x = W_WIDTH - 64;
+    r[3].y = W_HEIGHT - 64;
+}
+
 void addPlayerGame(P *p, unsigned char id, int x, int y)
 {
+    resetPlayer(p, 0, 0);
     p->id = id;
     p->x = x;
     p->y = y;

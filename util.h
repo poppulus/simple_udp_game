@@ -8,7 +8,7 @@
 #define W_WIDTH 640
 #define W_HEIGHT 480
 
-#define MAX_GAME_USERS 2
+#define MAX_GAME_USERS 4
 
 #define FONT_SIZE 16
 
@@ -240,7 +240,7 @@ typedef struct Play_Test
     NET network;
 
     SDL_Rect screen, camera, sprint_hud_r,
-            gunClips[25], *goal_r, *t_clips, *gk_r, *buttons;
+            gunClips[25], *goal_r, *t_clips, *gk_r, *buttons, *plr_hud;
 
     enum PLAY_STATE p_state;
     enum GAME_STATE g_state;
@@ -309,6 +309,7 @@ void setupPlay(P_TEST *pt, P *player);
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep);
 void setupGoals(SDL_Rect *r);
 void setupGoalKeepers(SDL_Rect *r, P_G *gk);
+void setupPlayerHud(SDL_Rect r[]);
 
 void addPlayerGame(P *p, unsigned char id, int x, int y);
 void removePlayerGame(P *p);

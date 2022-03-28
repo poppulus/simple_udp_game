@@ -42,9 +42,9 @@ int main(int argc, const char *argv[])
 
                     SDL_Event e;
                     P_TEST play_test;
-                    P players[2];
+                    P players[MAX_GAME_USERS];
                     P_G goalie[2];
-                    SDL_Rect buttons[3], p_clips[12], goal_r[2], gk_r[2];
+                    SDL_Rect buttons[3], p_clips[12], goal_r[2], gk_r[2], plr_hud[MAX_GAME_USERS];
                     Uint64 timer; 
                     int delta;
 
@@ -91,6 +91,9 @@ int main(int argc, const char *argv[])
                         initButtons(buttons);
                         initPlayerClips(p_clips);
 
+                        setupPlayerHud(plr_hud);
+                        play_test.plr_hud = plr_hud;
+
                         setupGoals(goal_r);
                         setupGoalKeepers(gk_r, goalie);
                         setupGame(&play_test, goal_r, gk_r, goalie);
@@ -103,7 +106,7 @@ int main(int argc, const char *argv[])
 
                         printf("init player\n");
 
-                        for (int i = 0; i < 2; i++)
+                        for (int i = 0; i < MAX_GAME_USERS; i++)
                         {
                             players[i].texture = &playerTexture;
                             players[i].t_clips = p_clips;
@@ -115,6 +118,8 @@ int main(int argc, const char *argv[])
                         }
 
                         setupPlay(&play_test, &players[0]);
+
+                        printf("game loop start\n");
 
                         // program loop
                         while (!play_test.quit)
@@ -168,8 +173,6 @@ int main(int argc, const char *argv[])
                         }
 
                         printf("NET: close if online\n");
-                        play_test.network.tquit = true;
-                        play_test.network.lost = true;
                         closeNet(&play_test.network);
                     }
                     else printf("Failed to load map!\n");
