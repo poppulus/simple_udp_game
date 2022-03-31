@@ -334,6 +334,10 @@ void updatePlayer(P *p, P_TEST *pt);
 void updatePlayerInputs(P *p);
 void updatePlayerX(P *p, L level);
 void updatePlayerY(P *p, L level);
+void addPlayerXvel(float *xvel, float cos);
+void addPlayerYvel(float *yvel, float sin);
+void subPlayerXvel(float *xvel);
+void subPlayerYvel(float *yvel);
 void updatePuck(P_TEST *pt, P players[]);
 void updateGoalKeepers(P_TEST *pt, P players[], bool grab);
 
