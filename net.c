@@ -177,13 +177,13 @@ int initNetHost(UDPsocket *sd, UDPpacket **pks, unsigned short port)
 
     printf("NET: UDP port %d\n", port);
 
-    if (!(pks[HOST_PACKET] = SDLNet_AllocPacket(64))) 
+    if (!(pks[HOST_PACKET] = SDLNet_AllocPacket(NET_BUFFER_SIZE))) 
     { 
         fprintf(stderr, "SDLNet_AllocPacket: %s\n", SDLNet_GetError()); 
         return 0;
     }
 
-    if (!(pks[PEER_PACKET] = SDLNet_AllocPacket(64))) 
+    if (!(pks[PEER_PACKET] = SDLNet_AllocPacket(NET_BUFFER_SIZE))) 
     { 
         fprintf(stderr, "SDLNet_AllocPacket: %s\n", SDLNet_GetError()); 
         return 0;
@@ -251,13 +251,13 @@ int initNetClient(NET *net, const char *string)
 
     printf("NET: allocate packets\n");
 
-    if (!(net->connection.pks[PEER_PACKET] = SDLNet_AllocPacket(64))) 
+    if (!(net->connection.pks[PEER_PACKET] = SDLNet_AllocPacket(NET_BUFFER_SIZE))) 
     { 
         fprintf(stderr, "SDLNet_AllocPacket: %s\n", SDLNet_GetError()); 
         return 0;
     }
 
-    if (!(net->connection.pks[HOST_PACKET] = SDLNet_AllocPacket(64))) 
+    if (!(net->connection.pks[HOST_PACKET] = SDLNet_AllocPacket(NET_BUFFER_SIZE))) 
     { 
         fprintf(stderr, "SDLNet_AllocPacket: %s\n", SDLNet_GetError()); 
         return 0;
@@ -283,22 +283,7 @@ int host_thread(void *ptr)
 
         if ((recv = SDLNet_UDP_Recv(net->connection.sd, net->connection.pks[PEER_PACKET])) > 0) 
         {
-            /*
-            printf("UDP Packet incoming\n"); 
-            printf("\tChan: %d\n", net->connection.pks[PEER_PACKET]->channel); 
-            printf("\tData STATUS: %d\n", net->connection.pks[PEER_PACKET]->data[NET_STATUS]); 
-            printf("\tData ID: %d\n", net->connection.pks[PEER_PACKET]->data[NET_ID]); 
-            printf("\tData STRING: %s\n", (char *)&net->connection.pks[PEER_PACKET]->data); 
-            printf("\tLen: %d\n", net->connection.pks[PEER_PACKET]->len); 
-            printf("\tMaxlen: %d\n", net->connection.pks[PEER_PACKET]->maxlen); 
-            printf("\tStatus: %d\n", net->connection.pks[PEER_PACKET]->status); 
-            printf(
-                "\tAddress: %x %x\n", 
-                net->connection.pks[PEER_PACKET]->address.host, 
-                net->connection.pks[PEER_PACKET]->address.port);
-            */
-            
-            switch (net->connection.pks[PEER_PACKET]->data[NET_STATUS])
+            switch (net->connection.pks[PEER_PACKET]->data[NET_CLIENT_STATUS])
             {
                 case N_CONNECT:
                     //printf("RECEIVE: connect\n");
@@ -312,7 +297,7 @@ int host_thread(void *ptr)
                     //printf("RECEIVE: disconnecting, id %d\n", net->connection.pks[PEER_PACKET]->data[NET_ID]);
                     hostHandleDisconnect(
                         net->users, 
-                        net->connection.pks[PEER_PACKET]->data[NET_ID], 
+                        net->connection.pks[PEER_PACKET]->data[NET_CLIENT_ID], 
                         net->players_net, 
                         &net->numusers, 
                         &net->numplayers);
@@ -323,7 +308,7 @@ int host_thread(void *ptr)
                     hostHandleNewId(
                         net->users, 
                         net->players_net, 
-                        net->connection.pks[PEER_PACKET]->data[NET_ID], 
+                        net->connection.pks[PEER_PACKET]->data[NET_CLIENT_ID], 
                         &net->numplayers);
                     net->join = 1;
                 break;
@@ -403,7 +388,8 @@ int host_thread(void *ptr)
                             net->users[i].address,
                             net->numplayers,
                             net->players_net,
-                            net->puck);
+                            net->puck,
+                            net->goalkeepers);
 
                         send = SDLNet_UDP_Send(net->connection.sd, -1, net->connection.pks[HOST_PACKET]);
                     break;
@@ -496,6 +482,8 @@ int client_thread(void *ptr)
     short   *puck_buffer = NULL, 
             *user_pos_buf = NULL;
 
+    float   *user_angle = NULL;
+
     unsigned char *user_buffer = NULL;
 
     while (!net->lost && !net->tquit)
@@ -505,21 +493,8 @@ int client_thread(void *ptr)
         if ((response = SDLNet_UDP_Recv(net->connection.sd, net->connection.pks[HOST_PACKET])) > 0)
         {
             response_timer = SDL_GetTicks64();
-            /*
-            printf("UDP Packet incoming\n"); 
-            printf("\tChan: %d\n", net->connection.pks[HOST_PACKET]->channel); 
-            printf("\tData STATUS: %d\n", net->connection.pks[HOST_PACKET]->data[NET_STATUS]); 
-            printf("\tData ID: %d\n", net->connection.pks[HOST_PACKET]->data[NET_ID]); 
-            printf("\tData STRING: %s\n", (char *)&net->connection.pks[HOST_PACKET]->data[NET_USERDATA]);
-            printf("\tLen: %d\n", net->connection.pks[HOST_PACKET]->len); 
-            printf("\tMaxlen: %d\n", net->connection.pks[HOST_PACKET]->maxlen); 
-            printf("\tStatus: %d\n", net->connection.pks[HOST_PACKET]->status); 
-            printf(
-                "\tAddress: %x %x\n",
-                 net->connection.pks[HOST_PACKET]->address.host, 
-                 net->connection.pks[HOST_PACKET]->address.port);
-            */
-            switch (net->connection.pks[HOST_PACKET]->data[NET_STATUS])
+            
+            switch (net->connection.pks[HOST_PACKET]->data[NET_HOST_STATUS])
             {
                 case N_CONNECT:
                 break;
@@ -537,7 +512,7 @@ int client_thread(void *ptr)
                 case N_NEWID:
                     if (net->localuser.status == N_CONNECT)
                     {
-                        net->localuser.id = net->connection.pks[HOST_PACKET]->data[NET_USERID];
+                        net->localuser.id = net->connection.pks[HOST_PACKET]->data[NET_HOST_USERID];
                         net->localuser.status = N_NEWID;
                     }
                 break;
@@ -548,38 +523,40 @@ int client_thread(void *ptr)
 
                         setupClientPlay(
                             net->connection.pks[PEER_PACKET], 
-                            net->localuser.id, 
-                            net->connection.pks[HOST_PACKET]->address);
+                            net->connection.pks[HOST_PACKET]->address, 
+                            net->localuser.id, net->localplayer);
                     }
                     else if (net->localuser.status == N_PLAY)
                     {
                         // handle incoming data 
-
-                        puck_buffer = (short *)&net->connection.pks[HOST_PACKET]->data[NET_PUCKDATA];
-                        user_buffer = (unsigned char *)&net->connection.pks[HOST_PACKET]->data[NET_USERID];
+                        puck_buffer = (short *)&net->connection.pks[HOST_PACKET]->data[NET_HOST_PUCKDATA];
+                        user_buffer = (unsigned char *)&net->connection.pks[HOST_PACKET]->data[NET_HOST_USERANGLE];
                         pkg_len = (net->connection.pks[HOST_PACKET]->len - NET_BUFFER_PRESET);
 
-                        net->puck.id = net->connection.pks[HOST_PACKET]->data[NET_PUCKID];
+                        net->goalkeepers.gk1_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK1];
+                        net->goalkeepers.gk2_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK2];
+
+                        net->puck.id = net->connection.pks[HOST_PACKET]->data[NET_HOST_PUCKID];
                         net->puck.x = puck_buffer[0];
                         net->puck.y = puck_buffer[1];
 
-                        if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] > net->numplayers)
+                        if (net->connection.pks[HOST_PACKET]->data[NET_HOST_NUSERS] > net->numplayers)
                         {
                             printf("NET: handle new user(s)\n");
                             clientHandleNewUser(
                                 net->players_net, 
-                                &user_buffer[0], 
+                                &user_buffer[8], 
                                 pkg_len, 
                                 &net->numplayers);
 
                             net->join = 1;
                         }
-                        else if (net->connection.pks[HOST_PACKET]->data[NET_NUSERS] < net->numplayers)
+                        else if (net->connection.pks[HOST_PACKET]->data[NET_HOST_NUSERS] < net->numplayers)
                         {
                             printf("NET: handle lost user(s)\n");
                             clientHandleLostUser(
                                 net->players_net, 
-                                &user_buffer[0], 
+                                &user_buffer[8], 
                                 pkg_len, 
                                 &net->numplayers);
                                 
@@ -607,15 +584,17 @@ int client_thread(void *ptr)
 
                         for (unsigned char i = 0; i < net->numplayers; i++)
                         {
-                            if (net->players_net[i].id == user_buffer[i * sizeof(P_NET)])
+                            if (net->players_net[i].id == user_buffer[(i * NET_BUFFER_PLAYER) + 8])
                             {
-                                user_pos_buf = (short *)&user_buffer[(i * sizeof(P_NET)) + 2];
+                                user_angle = (float *)&user_buffer[(i * NET_BUFFER_PLAYER)];
+                                user_pos_buf = (short *)&user_buffer[(i * NET_BUFFER_PLAYER) + 4];
 
                                 if (net->players_net[i].id != net->localuser.id)
                                 {
-                                    net->players_net[i].state = user_buffer[(i * sizeof(P_NET)) + 1];
+                                    net->players_net[i].angle = *user_angle;
                                     net->players_net[i].x = user_pos_buf[0];
                                     net->players_net[i].y = user_pos_buf[1];
+                                    net->players_net[i].state = user_buffer[(i * NET_BUFFER_PLAYER) + 9];
                                 }
                             }
                         }
@@ -656,22 +635,10 @@ int client_thread(void *ptr)
                         net->connection.sd, -1, net->connection.pks[PEER_PACKET]));
             break;
             case N_PLAY:
-                setPackageAddress(
-                    &net->connection.pks[PEER_PACKET]->address, 
-                    net->connection.pks[HOST_PACKET]->address);
-
-                net->connection.pks[PEER_PACKET]->data[NET_STATUS] = N_PLAY;
-                net->connection.pks[PEER_PACKET]->data[NET_ID] = net->localuser.id;
-
-                if (net->localplayer != NULL)
-                {
-                    memcpy(
-                        (unsigned char *)&net->connection.pks[PEER_PACKET]->data[NET_USERID], 
-                        net->localplayer, 
-                        sizeof(P_NET));
-                }
-
-                net->connection.pks[PEER_PACKET]->len = sizeof(P_NET) + NET_BUFFER_PRESET;
+                setupClientPlay(
+                    net->connection.pks[PEER_PACKET], 
+                    net->connection.hostaddr, 
+                    net->localuser.id, net->localplayer);
 
                 send = (
                     SDLNet_UDP_Send(
@@ -722,21 +689,15 @@ int client_thread(void *ptr)
     return 0;
 }
 
-void setPackageAddress(IPaddress *send_addr, IPaddress recv_addr)
-{
-    send_addr->host = recv_addr.host;
-    send_addr->port = recv_addr.port;
-}
-
 void setupClientConnect(UDPpacket *p, IPaddress ip)
 {
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_CONNECT;
-    p->data[NET_ID] = 0;
+    p->data[NET_CLIENT_STATUS] = N_CONNECT;
+    p->data[NET_CLIENT_ID] = 0;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_CLIENT_SEND_SIZE;
 }
 
 void setupClientNewId(UDPpacket *p, char id, IPaddress ip)
@@ -744,10 +705,10 @@ void setupClientNewId(UDPpacket *p, char id, IPaddress ip)
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_NEWID;
-    p->data[NET_ID] = id;
+    p->data[NET_CLIENT_STATUS] = N_NEWID;
+    p->data[NET_CLIENT_ID] = id;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_CLIENT_SEND_SIZE;
 }
 
 void setupClientDisconnect(UDPpacket *p, char id, IPaddress ip)
@@ -755,111 +716,41 @@ void setupClientDisconnect(UDPpacket *p, char id, IPaddress ip)
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_DISCONNECT;
-    p->data[NET_ID] = id;
+    p->data[NET_CLIENT_STATUS] = N_DISCONNECT;
+    p->data[NET_CLIENT_ID] = id;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_CLIENT_SEND_SIZE;
 }
 
-void setupClientPlay(UDPpacket *p, char id, IPaddress ip)
+void setupClientPlay(UDPpacket *p, IPaddress ip, char id, P_NET *localplayer)
 {
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_PLAY;
-    p->data[NET_ID] = id;
+    p->data[NET_CLIENT_STATUS] = N_PLAY;
+    p->data[NET_CLIENT_ID] = id;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    if (localplayer != NULL)
+    {
+        memcpy(
+            (unsigned char *)&p->data[NET_CLIENT_USERANGLE], 
+            localplayer, NET_BUFFER_PLAYER);
+    }
+
+    p->len = NET_CLIENT_SEND_SIZE;
 }
 
-/*
-UDPconnection *createNewConnection(UDPpacket *pks[], UDPsocket sd, UDPuser *usr, P_NET plrs[], const char *type)
+void printPacketInfo(UDPpacket *pkt)
 {
-    static UDPconnection c;
-
-    c.pks = pks;
-    c.sd = &sd;
-    c.players = plrs;
-    c.lost = 0;
-    c.numplayers = 1;
-
-    if (type == "client") 
-    {
-        c.type = "client";
-        c.localuser = usr;
-    }
-    else if (type == "host")
-    {
-        c.type = "host";
-        c.users = usr;
-        c.numusers = 1;
-    }
-
-    return &c;
-}
-*/
-
-int connectClient(UDPconnection *c, UDPuser *user)
-{
-    Uint64 timer = 0, res_timer = SDL_GetTicks64();
-    int status = 0, response = 0;
-    long timeout = 0;
-
-    while (!status)
-    {
-        timer = SDL_GetTicks64();
-
-        // ping server
-        if (SDLNet_UDP_Send(c->sd, -1, c->pks[PEER_PACKET])) 
-            printf("SEND: ping\n"); 
-        else status = -1;
-        
-        // wait on response
-        if ((response = SDLNet_UDP_Recv(c->sd, c->pks[HOST_PACKET])) > 0)
-        {
-            res_timer = SDL_GetTicks64();
-            /*
-            printf("UDP Packet incoming\n"); 
-            printf("\tChan: %d\n", c->pks[HOST_PACKET]->channel); 
-            printf("\tData STATUS: %d\n", c->pks[HOST_PACKET]->data[NET_STATUS]); 
-            printf("\tData ID: %d\n", c->pks[HOST_PACKET]->data[NET_ID]); 
-            printf("\tData STRING: %s\n", (char *)&c->pks[HOST_PACKET]->data[NET_USERID]);
-            printf("\tLen: %d\n", c->pks[HOST_PACKET]->len); 
-            printf("\tMaxlen: %d\n", c->pks[HOST_PACKET]->maxlen); 
-            printf("\tStatus: %d\n", c->pks[HOST_PACKET]->status); 
-            printf("\tAddress: %x %x\n", c->pks[HOST_PACKET]->address.host, c->pks[HOST_PACKET]->address.port);
-            */
-            
-            switch (c->pks[HOST_PACKET]->data[NET_STATUS])
-            {
-                case N_DISCONNECT:
-                    status = -1;
-                    printf("RECEIVE: disconnect\n");
-                break;
-                case N_NEWID:
-                    user->id = c->pks[HOST_PACKET]->data[NET_USERID];
-                    status = 1;
-                    printf("RECEIVE: new id: %d\n", c->pks[HOST_PACKET]->data[NET_USERID]);
-                break;
-            }
-        }
-
-        if (response < 0) status = -1;
-        else if (!response)
-        {
-            timeout = timer - res_timer;
-
-            if (timeout >= 3000)
-            {
-                printf("RECEIVE: host timeout\n");
-                status = -1;
-            }
-        }
-
-        SDL_Delay(100);
-    }
-
-    return status;
+    printf("UDP Packet incoming\n"); 
+    printf("\tChan: %d\n", pkt->channel); 
+    printf("\tData STATUS: %d\n", pkt->data[NET_CLIENT_STATUS]); 
+    printf("\tData ID: %d\n", pkt->data[NET_CLIENT_ID]); 
+    printf("\tData STRING: %s\n", (char *)&pkt->data[NET_CLIENT_USERID]);
+    printf("\tLen: %d\n", pkt->len); 
+    printf("\tMaxlen: %d\n", pkt->maxlen); 
+    printf("\tStatus: %d\n", pkt->status); 
+    printf("\tAddress: %x %x\n", pkt->address.host, pkt->address.port);
 }
 
 void clientHandleConnect()
@@ -879,85 +770,14 @@ void clientHandleNewId()
 
 void clientHandlePlay(P_NET *players, UDPpacket *packet, unsigned char *numplayers)
 {
-    if (packet->data[NET_NUSERS] < (*numplayers))
-    {
-        /*
-        unsigned char n = 0;
-
-        for (unsigned char i = 0; i < (*numplayers); i++)
-        {
-            for (unsigned char j = 0; j < packet->data[NET_NUSERS]; j++)
-            {
-                if (players[i].id == (int)packet->data[NET_USERDATA + (j * 3)])
-                    n = 1;
-            }
-            // if player id is NOT in data, remove from list
-            if (!n)
-            {
-                printf("NET: removed user %d\n", players[i].id);
-                removePlayer(&players[i]);
-                (*numplayers)--;
-            }
-
-            n = 0;
-        }
-        */
-
-        printf("NET: lost player(s)\n");
-    }
-    else if (packet->data[NET_NUSERS] > (*numplayers))
-    {
-        /*
-        unsigned char n = 0;
-
-        for (unsigned char j = 0; j < packet->data[NET_NUSERS]; j++)
-        {
-            for (unsigned char i = 0; i < (*numplayers); i++)
-            {
-                if ((int)packet->data[NET_USERDATA + (j * 3)] == players[i].id)
-                    n = 1;
-            }
-            // if player id is NOT in data, add to list
-            if (!n)
-            {
-                for (unsigned char p = 0; p < (*numplayers); p++)
-                {
-                    if (!players[p].id)
-                    {
-                        printf("NET: added user %d\n", (int)packet->data[NET_USERDATA + (j * 3)]);
-                        addPlayer(&players[p], (int)packet->data[NET_USERDATA + (j * 3)]);
-                        (*numplayers)++;
-                    }
-                }
-            }
-
-            n = 0;
-        }
-        */
-
-        for (unsigned char j = 0; j < packet->data[NET_NUSERS]; j++)
-        {
-            printf("USER: id:%d\n", packet->data[NET_USERID + (j * 10)]);
-        }
-
-        printf("NET: new player(s)\n");
-    }
-
-    for (unsigned char i = 0; i < (*numplayers); i++)
-    {
-        if (players[i].id == packet->data[NET_USERID + (i * 10)])
-        {
-            players[i].x = (int)packet->data[NET_USERID + (i * 10) + 2];
-            players[i].y = (int)packet->data[NET_USERID + (i * 10) + 3];
-        }
-    }
+    
 }
 
 void clientHandleNewUser(P_NET *plrs, unsigned char *buf, int pkg_len, unsigned char *numplayers)
 {
     unsigned char n = 0;
     
-    for (unsigned char i = 0; i < pkg_len; i += sizeof(P_NET))
+    for (unsigned char i = 0; i < pkg_len; i += NET_BUFFER_PLAYER)
     {
         for (unsigned j = 0; j < (*numplayers); j++)
         {
@@ -995,7 +815,7 @@ void clientHandleLostUser(P_NET *plrs, unsigned char *buf, int pkg_len, unsigned
     
     for (unsigned char i = 0; i < (*numplayers); i++)
     {
-        for (unsigned j = 0; j < pkg_len; j += sizeof(P_NET))
+        for (unsigned j = 0; j < pkg_len; j += NET_BUFFER_PLAYER)
         {
             if (plrs[i].id == buf[j]) 
             {
@@ -1133,11 +953,13 @@ void hostHandleNewId(UDPuser *users, P_NET *players, unsigned char peerid, unsig
 
 void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack)
 {
-    short *buffer = (short *)&pack->data[NET_USERPOS];
+    float *angle = (float *)&pack->data[NET_CLIENT_USERANGLE];
+    short *buffer = (short *)&pack->data[NET_CLIENT_USERPOS];
 
     for (unsigned char i = 0; i < MAX_NET_USERS; i++)
     {
-        if (users[i].id == pack->data[NET_ID] && pack->data[NET_ID] > 0)
+        if (users[i].id == pack->data[NET_CLIENT_ID] 
+        && pack->data[NET_CLIENT_ID] > 0)
         {
             users[i].timeout = SDL_GetTicks64();
 
@@ -1146,9 +968,10 @@ void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack)
             {
                 if (players[j].id == users[i].id)
                 {
-                    players[j].state = pack->data[NET_USERSTATUS];
+                    players[j].angle = *angle;
                     players[j].x = buffer[0];
                     players[j].y = buffer[1];
+                    players[j].state = pack->data[NET_CLIENT_USERSTATUS];
                     break;
                 }
             }
@@ -1162,10 +985,10 @@ void hostSendConnect(UDPpacket *p, IPaddress ip, unsigned char nplrs)
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_CONNECT;
-    p->data[NET_NUSERS] = nplrs;
+    p->data[NET_HOST_STATUS] = N_CONNECT;
+    p->data[NET_HOST_NUSERS] = nplrs;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_HOST_SEND_SIZE;
 }
 
 void hostSendDisconnect(UDPpacket *p, IPaddress ip, unsigned char nplrs)
@@ -1173,10 +996,10 @@ void hostSendDisconnect(UDPpacket *p, IPaddress ip, unsigned char nplrs)
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_DISCONNECT;
-    p->data[NET_NUSERS] = nplrs;
+    p->data[NET_HOST_STATUS] = N_DISCONNECT;
+    p->data[NET_HOST_NUSERS] = nplrs;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_HOST_SEND_SIZE;
 }
 
 void hostSendNewId(UDPpacket *p, IPaddress ip, unsigned char nplrs, int id)
@@ -1184,29 +1007,29 @@ void hostSendNewId(UDPpacket *p, IPaddress ip, unsigned char nplrs, int id)
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_NEWID;
-    p->data[NET_NUSERS] = nplrs;
-    p->data[NET_USERID] = id;
+    p->data[NET_HOST_STATUS] = N_NEWID;
+    p->data[NET_HOST_NUSERS] = nplrs;
+    p->data[NET_HOST_USERID] = id;
 
-    p->len = strlen((char *)&p->data[NET_USERID]) + NET_BUFFER_PRESET;
+    p->len = NET_HOST_SEND_SIZE;
 }
 
-void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck)
+void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck, GK_NET gk)
 {
     p->address.host = ip.host;
     p->address.port = ip.port;
 
-    p->data[NET_STATUS] = N_PLAY;
-    p->data[NET_NUSERS] = nplrs;
+    p->data[NET_HOST_STATUS] = N_PLAY;
+    p->data[NET_HOST_NUSERS] = nplrs;
 
-
-    memcpy((unsigned char *)&p->data[NET_PUCKID], &puck.id, 1);
-    memcpy((short *)&p->data[NET_PUCKDATA], &puck.x, 4);
+    memcpy((unsigned char *)&p->data[NET_HOST_GK1], &gk.gk1_status, 2);
+    p->data[NET_HOST_PUCKID] = puck.id;
+    //memcpy((unsigned char *)&p->data[NET_PUCKID], &puck.id, 1);
+    memcpy((short *)&p->data[NET_HOST_PUCKDATA], &puck.x, 4);
 
     memcpy(
-        (unsigned char *)&p->data[NET_USERID], 
-        plrs, 
-        sizeof(P_NET) * nplrs);
+        (unsigned char *)&p->data[NET_HOST_USERANGLE], 
+        plrs, NET_BUFFER_PLAYER * nplrs);
 
-    p->len = (6 * nplrs) + NET_BUFFER_PRESET;
+    p->len = (NET_BUFFER_PLAYER * nplrs) + NET_BUFFER_PRESET;
 }

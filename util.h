@@ -9,6 +9,7 @@
 #define W_HEIGHT 480
 
 #define MAX_GAME_USERS 4
+#define GOALKEEPERS 2
 
 #define FONT_SIZE 16
 
@@ -26,6 +27,7 @@
 
 #define STANDARD_VELOCITY 2
 #define SPRINT_VELOCITY 3
+#define MIN_SHOOT_VELOCITY 3
 #define MAX_SHOOT_VELOCITY 5
 
 #define JOYSTICK_DEADZONE 8000
@@ -84,11 +86,19 @@ enum GAME_STATE
     G_JOINING
 };
 
+enum PUCK_STATE
+{
+    P_STATE_NORMAL,
+    P_STATE_HIT,
+    P_STATE_GRAB
+};
+
 enum PLAYER_STATE 
 {
     PLR_SKATE_NP,
     PLR_SKATE_WP,
     PLR_SHOOT,
+    PLR_SHOOT_MAX,
     PLR_SWING,
     PLR_SPRINT,
     PLR_BLOCK
@@ -173,7 +183,7 @@ typedef struct PLAY_GOALIE
     SDL_Rect r;
     enum GOALIE_STATE state;
     float x, y;
-    unsigned char s_timer;
+    unsigned char s_timer, id;
     bool swing:1, shoot:1, grab:1;
 } P_G;
 
@@ -185,9 +195,9 @@ typedef struct Player
     enum PLAYER_STATE state;
     enum PLAYER_FACING facing;
 
-    int id, mx, my;
+    int     id, mx, my;
 
-    short sprint_cdown_timer;
+    short   sprint_cdown_timer;
 
     float   x, y, xvel, yvel, 
             gvel, vel, pvel,
@@ -199,16 +209,14 @@ typedef struct Player
 
     SDL_Rect r, clip, *t_clips, club_r;
 
-    bool    sprint:1, sprint_cdown:1, spawned:1,
-            bounce:1,
+    bool    sprint:1, sprint_cdown:1, spawned:1, bounce:1, state_wait:1,
             JOY_use:1, AIM_done:1,
             m_move:1, m_hold:1;
 
-    unsigned char *dir, input_q[4],
-                   a_counter, yvel_counter,
-                   a_index, c_index,
+    unsigned char *dir, input_q[4], aim_q[4],
+                   a_counter, a_index, c_index,
                    sprint_timer, swing_timer, block_timer,
-                   AIM_timer;
+                   state_timer, AIM_timer;
 
     BUL bullets[10];
 } P;
@@ -216,8 +224,7 @@ typedef struct Player
 typedef struct Puck
 {
     SDL_Rect r;
-    bool hit:1, grab:1;
-    unsigned char hit_counter;
+    unsigned char hit_counter, state;
     float x, y, xvel, yvel, fvel, fvelx, fvely;
 } Puck;
 
@@ -273,10 +280,13 @@ void reverse(char s[]);
 void n_itoa(int n, char s[]);
 
 bool checkCollision(SDL_Rect a, SDL_Rect b);
+int checkGoalieCollision(SDL_Rect gk, SDL_Rect puck);
 bool checkMousePosition(int x, int y, SDL_Rect r);
 bool checkPlayerPosition(int x, int y, unsigned char map[], int msize);
 bool checkGoal(SDL_Rect puck, SDL_Rect goal);
 bool checkPuckCollision(float x, float y, SDL_Rect box);
+
+void checkPuckXDistance(float x1, float x2, float *f);
 
 SDL_Texture *loadTexture(SDL_Renderer *r, const char path[]);
 
@@ -321,7 +331,8 @@ void resetInputField(I_FIELD *input);
 
 void movePlayer(P *player, SDL_Rect camera);
 
-void adjustGoalie(float *gky, float ry, float vy);
+void adjustGoalieX(float *gkx, float rx, float vx);
+void adjustGoalieY(float *gky, float ry, float vy);
 
 void updateBulletHits(B_HITS *hits, int bx, int by);
 
@@ -334,11 +345,13 @@ void updatePlayer(P *p, P_TEST *pt);
 void updatePlayerInputs(P *p);
 void updatePlayerX(P *p, L level);
 void updatePlayerY(P *p, L level);
-void addPlayerXvel(float *xvel, float cos);
-void addPlayerYvel(float *yvel, float sin);
-void subPlayerXvel(float *xvel);
-void subPlayerYvel(float *yvel);
+
+void addPlayerVel(float *vel, float wave);
+void subPlayerVel(float *vel);
+
 void updatePuck(P_TEST *pt, P players[]);
+
+void updateGoalKeeperX(float *x, const int CHECKX);
 void updateGoalKeepers(P_TEST *pt, P players[], bool grab);
 
 void updateLocalGame(P_TEST *pt, P players[]);

@@ -8,8 +8,12 @@
 #define HOST_ID 1
 
 #define MAX_NET_USERS 2
-#define NET_BUFFER_PRESET 8
+#define NET_BUFFER_PRESET 10
 #define NET_BUFFER_SIZE 64
+#define NET_BUFFER_PLAYER 12
+
+#define NET_HOST_SEND_SIZE 22
+#define NET_CLIENT_SEND_SIZE 12
 
 enum NET_STATUS
 {
@@ -18,17 +22,45 @@ enum NET_STATUS
     N_NEWID,
     N_PLAY
 };
-
+/*
 enum NET_DATA
 {
     NET_STATUS,
     NET_ID,
     NET_NUSERS,
+    NET_GK1,
+    NET_GK2,
     NET_PUCKID,
     NET_PUCKDATA,
-    NET_USERID = 8,
-    NET_USERSTATUS,
-    NET_USERPOS
+    NET_USERANGLE = 10,
+    NET_USERPOS = 14,
+    NET_USERID = 18,
+    NET_USERSTATUS
+};
+*/
+enum NET_HOST_DATA
+{
+    NET_HOST_STATUS,
+    NET_HOST_ID,
+    NET_HOST_NUSERS,
+    NET_HOST_GK1,
+    NET_HOST_GK2,
+    NET_HOST_PUCKID,
+    NET_HOST_PUCKDATA,
+    NET_HOST_USERANGLE = 10,
+    NET_HOST_USERPOS = 14,
+    NET_HOST_USERID = 18,
+    NET_HOST_USERSTATUS
+};
+
+enum NET_CLIENT_DATA
+{
+    NET_CLIENT_STATUS,
+    NET_CLIENT_ID,
+    NET_CLIENT_USERANGLE,
+    NET_CLIENT_USERPOS = 6,
+    NET_CLIENT_USERID = 10,
+    NET_CLIENT_USERSTATUS
 };
 
 enum P_NET_STATE
@@ -38,6 +70,11 @@ enum P_NET_STATE
     PNET_SHOOT
 };
 
+typedef struct GK_Net
+{
+    unsigned char gk1_status, gk2_status;
+} GK_NET;
+
 typedef struct Puck_Net
 {
     unsigned char id;
@@ -46,8 +83,9 @@ typedef struct Puck_Net
 
 typedef struct Player_Net
 {
-    unsigned char id, state;
+    float angle;
     short x, y;
+    unsigned char id, state;
 } P_NET;
 
 typedef struct Local_User
@@ -79,6 +117,7 @@ typedef struct NETWORKING
     UDPuser localuser;
     P_NET *players_net;
     P_NET *localplayer;
+    GK_NET goalkeepers;
     PUCK_NET puck;
     unsigned char numusers, numplayers;
     int lost:1, tquit:1, join:1, left:1;
@@ -95,13 +134,7 @@ int initNetClient(NET *net, const char *string);
 int host_thread(void *ptr);
 int client_thread(void *ptr);
 
-UDPconnection *createNewConnection(
-    UDPpacket *pks[], 
-    UDPsocket sd, 
-    UDPuser *usr, 
-    P_NET plrs[], 
-    const char *type
-);
+void printPacketInfo(UDPpacket *pkt);
 
 void addUser(UDPuser *user, char id, int host, unsigned short port);
 void removeUser(UDPuser *user);
@@ -111,14 +144,10 @@ void removePlayerNet(P_NET *p);
 
 void resetUser(UDPuser *u);
 
-void setPackageAddress(IPaddress *send_addr, IPaddress recv_addr);
-
 void setupClientConnect(UDPpacket *p, IPaddress ip);
 void setupClientNewId(UDPpacket *p, char id, IPaddress ip);
 void setupClientDisconnect(UDPpacket *p, char id, IPaddress ip);
-void setupClientPlay(UDPpacket *p, char id, IPaddress ip);
-
-int connectClient(UDPconnection *c, UDPuser *user);
+void setupClientPlay(UDPpacket *p, IPaddress ip, char id, P_NET *localplayer);
 
 void clientHandleConnect();
 void clientHandleDisconnect();
@@ -155,4 +184,4 @@ void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack);
 void hostSendConnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);
 void hostSendDisconnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);
 void hostSendNewId(UDPpacket *p, IPaddress ip, unsigned char nplrs, int id);
-void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck);
+void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck, GK_NET gk);
