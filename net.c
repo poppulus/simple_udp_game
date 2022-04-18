@@ -136,11 +136,13 @@ void initNet(NET *net)
 {
     net->numusers = 0;
     net->numplayers = 0;
+    net->play_state = 0;
 
     net->lost = 0;
     net->tquit = 0;
     net->join = 0;
     net->left = 0;
+    net->client_data_interrupt = 0;
 
     net->thread = NULL;
     net->users = NULL;
@@ -286,7 +288,6 @@ int host_thread(void *ptr)
             switch (net->connection.pks[PEER_PACKET]->data[NET_CLIENT_STATUS])
             {
                 case N_CONNECT:
-                    //printf("RECEIVE: connect\n");
                     hostHandleConnect(
                         net->users, 
                         net->connection.pks, 
@@ -294,7 +295,6 @@ int host_thread(void *ptr)
                         &player_id);
                 break;
                 case N_DISCONNECT:
-                    //printf("RECEIVE: disconnecting, id %d\n", net->connection.pks[PEER_PACKET]->data[NET_ID]);
                     hostHandleDisconnect(
                         net->users, 
                         net->connection.pks[PEER_PACKET]->data[NET_CLIENT_ID], 
@@ -304,7 +304,6 @@ int host_thread(void *ptr)
                     net->left = 1;
                 break;
                 case N_NEWID:
-                    //printf("RECEIVE: new id, user %d\n", net->connection.pks[PEER_PACKET]->data[NET_ID]);
                     hostHandleNewId(
                         net->users, 
                         net->players_net, 
@@ -313,11 +312,11 @@ int host_thread(void *ptr)
                     net->join = 1;
                 break;
                 case N_PLAY:
-                    //printf("RECEIVE: play\n");
                     hostHandlePlay(
                         net->users, 
                         net->players_net, 
-                        net->connection.pks[PEER_PACKET]);
+                        net->connection.pks[PEER_PACKET],
+                        net->client_data_interrupt);
                 break;
             }
         } 
@@ -385,11 +384,7 @@ int host_thread(void *ptr)
                     case N_PLAY:
                         hostSendPlay(
                             net->connection.pks[HOST_PACKET], 
-                            net->users[i].address,
-                            net->numplayers,
-                            net->players_net,
-                            net->puck,
-                            net->goalkeepers);
+                            net->users[i].address, *net);
 
                         send = SDLNet_UDP_Send(net->connection.sd, -1, net->connection.pks[HOST_PACKET]);
                     break;
@@ -533,6 +528,8 @@ int client_thread(void *ptr)
                         user_buffer = (unsigned char *)&net->connection.pks[HOST_PACKET]->data[NET_HOST_USERANGLE];
                         pkg_len = (net->connection.pks[HOST_PACKET]->len - NET_BUFFER_PRESET);
 
+                        net->play_state = net->connection.pks[HOST_PACKET]->data[NET_HOST_STATE];
+
                         net->goalkeepers.gk1_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK1];
                         net->goalkeepers.gk2_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK2];
 
@@ -595,6 +592,14 @@ int client_thread(void *ptr)
                                     net->players_net[i].x = user_pos_buf[0];
                                     net->players_net[i].y = user_pos_buf[1];
                                     net->players_net[i].state = user_buffer[(i * NET_BUFFER_PLAYER) + 9];
+                                }
+                                else 
+                                {
+                                    if (net->play_state == GNET_DROP)
+                                    {
+                                        net->players_net[i].x = user_pos_buf[0];
+                                        net->players_net[i].y = user_pos_buf[1];
+                                    }
                                 }
                             }
                         }
@@ -951,7 +956,7 @@ void hostHandleNewId(UDPuser *users, P_NET *players, unsigned char peerid, unsig
     }
 }
 
-void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack)
+void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, int interrupt)
 {
     float *angle = (float *)&pack->data[NET_CLIENT_USERANGLE];
     short *buffer = (short *)&pack->data[NET_CLIENT_USERPOS];
@@ -969,8 +974,13 @@ void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack)
                 if (players[j].id == users[i].id)
                 {
                     players[j].angle = *angle;
-                    players[j].x = buffer[0];
-                    players[j].y = buffer[1];
+
+                    if (!interrupt)
+                    {
+                        players[j].x = buffer[0];
+                        players[j].y = buffer[1];
+                    }
+                    
                     players[j].state = pack->data[NET_CLIENT_USERSTATUS];
                     break;
                 }
@@ -1014,22 +1024,23 @@ void hostSendNewId(UDPpacket *p, IPaddress ip, unsigned char nplrs, int id)
     p->len = NET_HOST_SEND_SIZE;
 }
 
-void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck, GK_NET gk)
+void hostSendPlay(UDPpacket *p, IPaddress ip, NET net)
 {
     p->address.host = ip.host;
     p->address.port = ip.port;
 
     p->data[NET_HOST_STATUS] = N_PLAY;
-    p->data[NET_HOST_NUSERS] = nplrs;
+    p->data[NET_HOST_NUSERS] = net.numplayers;
+    p->data[NET_HOST_STATE] = net.play_state;
+    
+    memcpy((unsigned char *)&p->data[NET_HOST_GK1], &net.goalkeepers.gk1_status, 2);
 
-    memcpy((unsigned char *)&p->data[NET_HOST_GK1], &gk.gk1_status, 2);
-    p->data[NET_HOST_PUCKID] = puck.id;
-    //memcpy((unsigned char *)&p->data[NET_PUCKID], &puck.id, 1);
-    memcpy((short *)&p->data[NET_HOST_PUCKDATA], &puck.x, 4);
+    p->data[NET_HOST_PUCKID] = net.puck.id;
+    memcpy((short *)&p->data[NET_HOST_PUCKDATA], &net.puck.x, 4);
 
     memcpy(
         (unsigned char *)&p->data[NET_HOST_USERANGLE], 
-        plrs, NET_BUFFER_PLAYER * nplrs);
+        net.players_net, NET_BUFFER_PLAYER * net.numplayers);
 
-    p->len = (NET_BUFFER_PLAYER * nplrs) + NET_BUFFER_PRESET;
+    p->len = (NET_BUFFER_PLAYER * net.numplayers) + NET_BUFFER_PRESET;
 }

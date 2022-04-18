@@ -9,7 +9,7 @@
 #define W_HEIGHT 480
 
 #define MAX_GAME_USERS 4
-#define GOALKEEPERS 2
+#define GOALS 2
 
 #define FONT_SIZE 16
 
@@ -25,7 +25,7 @@
 #define F_BSIZE 73
 #define MAP_START 74
 
-#define STANDARD_VELOCITY 2
+#define STANDARD_VELOCITY 2.5F
 #define SPRINT_VELOCITY 3
 #define MIN_SHOOT_VELOCITY 3
 #define MAX_SHOOT_VELOCITY 5
@@ -255,12 +255,12 @@ typedef struct Play_Test
     int rx, ry;
 
     unsigned char   GUN_delay, GUN_speed, SCORE_timer,
-                    PUCK_freeze_timer,
+                    PUCK_freeze_timer, STATE_timer,
                     t_n_size, t_bit_size, *m_buffer, f_buffer[MAP_START];
 
     char channel_volume;
 
-    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1;
+    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1, state_change:1;
     
     char TEXT_gun_speed[2];
 
@@ -315,6 +315,8 @@ void initGoalkeeper(P_G *g);
 void setCamera(SDL_Rect *c, int x, int y);
 void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s);
 
+void setPlayerFace(float deg, enum PLAYER_FACING *face);
+
 void setupPlay(P_TEST *pt, P *player);
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep);
 void setupGoals(SDL_Rect *r);
@@ -324,7 +326,7 @@ void setupPlayerHud(SDL_Rect r[]);
 void addPlayerGame(P *p, unsigned char id, int x, int y);
 void removePlayerGame(P *p);
 
-void resetPlay(P_TEST *pt, P *player);
+void resetPlay(P_TEST *pt, P plrs[], bool id);
 void resetPlayer(P *player, int sx, int sy);
 void resetPuck(Puck *p, int mx, int my);
 void resetInputField(I_FIELD *input);

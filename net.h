@@ -8,11 +8,11 @@
 #define HOST_ID 1
 
 #define MAX_NET_USERS 2
-#define NET_BUFFER_PRESET 10
+#define NET_BUFFER_PRESET 11
 #define NET_BUFFER_SIZE 64
 #define NET_BUFFER_PLAYER 12
 
-#define NET_HOST_SEND_SIZE 22
+#define NET_HOST_SEND_SIZE 23
 #define NET_CLIENT_SEND_SIZE 12
 
 enum NET_STATUS
@@ -22,34 +22,20 @@ enum NET_STATUS
     N_NEWID,
     N_PLAY
 };
-/*
-enum NET_DATA
-{
-    NET_STATUS,
-    NET_ID,
-    NET_NUSERS,
-    NET_GK1,
-    NET_GK2,
-    NET_PUCKID,
-    NET_PUCKDATA,
-    NET_USERANGLE = 10,
-    NET_USERPOS = 14,
-    NET_USERID = 18,
-    NET_USERSTATUS
-};
-*/
+
 enum NET_HOST_DATA
 {
     NET_HOST_STATUS,
     NET_HOST_ID,
     NET_HOST_NUSERS,
+    NET_HOST_STATE,
     NET_HOST_GK1,
     NET_HOST_GK2,
     NET_HOST_PUCKID,
     NET_HOST_PUCKDATA,
-    NET_HOST_USERANGLE = 10,
-    NET_HOST_USERPOS = 14,
-    NET_HOST_USERID = 18,
+    NET_HOST_USERANGLE = 11,
+    NET_HOST_USERPOS = 15,
+    NET_HOST_USERID = 19,
     NET_HOST_USERSTATUS
 };
 
@@ -61,6 +47,13 @@ enum NET_CLIENT_DATA
     NET_CLIENT_USERPOS = 6,
     NET_CLIENT_USERID = 10,
     NET_CLIENT_USERSTATUS
+};
+
+enum G_NET_STATE
+{
+    GNET_DROP,
+    GNET_PLAY,
+    GNET_GOAL
 };
 
 enum P_NET_STATE
@@ -119,8 +112,8 @@ typedef struct NETWORKING
     P_NET *localplayer;
     GK_NET goalkeepers;
     PUCK_NET puck;
-    unsigned char numusers, numplayers;
-    int lost:1, tquit:1, join:1, left:1;
+    unsigned char numusers, numplayers, play_state;
+    int lost:1, tquit:1, join:1, left:1, client_data_interrupt:1;
 } NET;
 
 void closeNet(NET *net);
@@ -179,9 +172,9 @@ void hostHandleNewId(
     unsigned char *numplayers
 );
 
-void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack);
+void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, int interrupt);
 
 void hostSendConnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);
 void hostSendDisconnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);
 void hostSendNewId(UDPpacket *p, IPaddress ip, unsigned char nplrs, int id);
-void hostSendPlay(UDPpacket *p, IPaddress ip, unsigned char nplrs, P_NET *plrs, PUCK_NET puck, GK_NET gk);
+void hostSendPlay(UDPpacket *p, IPaddress ip, NET net);

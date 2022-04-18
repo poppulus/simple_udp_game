@@ -142,18 +142,10 @@ int main(int argc, const char *argv[])
                                 case G_JOINING:
                                     while (SDL_PollEvent(&e) != 0)
                                     {
-                                        switch (e.type)
-                                        {
-                                            case SDL_QUIT:
-                                                play_test.quit = true;
-                                            break;
-                                            case SDL_KEYDOWN:
-                                                if (e.key.keysym.sym == SDLK_ESCAPE)
-                                                {
-                                                    play_test.network.tquit = true;
-                                                }
-                                            break;
-                                        }
+                                        if (e.type == SDL_QUIT) play_test.quit = true;
+                                        else if (e.type == SDL_KEYDOWN 
+                                        && e.key.keysym.sym == SDLK_ESCAPE) 
+                                            play_test.network.tquit = true;
                                     }
                                 break;
                                 default: 

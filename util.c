@@ -591,6 +591,7 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     p->sprint_cdown_timer = 0;
     p->block_timer = 0;
     p->state_timer = 0;
+    p->swing_timer = 0;
 
     p->c_index = 0;
     p->facing = 0;
@@ -706,6 +707,18 @@ void setMapDimensions(L *l, unsigned char *w, unsigned char *h, unsigned char s)
     printf("w%d h%d ts%d tp%d\n", l->r.w, l->r.h, l->t_size, l->t_map_pieces);
 }
 
+void setPlayerFace(float deg, enum PLAYER_FACING *face)
+{
+    if (deg > AIM_RIGHT || deg < AIM_DOWN)
+        *face = FACING_RIGHT; 
+    else if (deg > AIM_DOWN && deg < AIM_LEFT)
+        *face = FACING_DOWN; 
+    else if (deg > AIM_LEFT && deg < AIM_UP)
+        *face = FACING_LEFT; 
+    else if (deg > AIM_UP && deg < AIM_RIGHT)
+        *face = FACING_UP;
+}
+
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 {
     unsigned char i = 0;
@@ -786,38 +799,43 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 
             switch (players[i].state)
             {
-                case PLR_SHOOT:
+                case PLR_SKATE_WP:
                     // player hitbox
                     SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
                     SDL_RenderFillRect(r, &plq);
-                    // club hitbox
-                    SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &cq);
+                    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
+                    SDL_RenderDrawRect(r, &plq);
                 break;
                 case PLR_SHOOT_MAX:
+                    // player hitbox
+                    if (players[i].state_timer < 4)
+                        SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
+                    else if (players[i].state_timer >= 4)
+                        SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+
+                    SDL_RenderFillRect(r, &plq);
+
+                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                    SDL_RenderDrawRect(r, &plq);
                 break;
                 case PLR_SWING:
                     // player hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
+                    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
                     SDL_RenderFillRect(r, &plq);
                     // club hitbox
                     SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
                     SDL_RenderFillRect(r, &cq);
                 break;
-                case PLR_BLOCK:
+                default:
                     // player hitbox
                     SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
                     SDL_RenderFillRect(r, &plq);
                 break;
-                default:
-                    // player hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &plq);
-                    // club hitbox
-                    SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
-                    SDL_RenderFillRect(r, &cq);
-                break;
             }
+
+            // player directional crosshair
+            SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+            SDL_RenderFillRect(r, &players[i].crosshair.r);
             
             // player texture
             if (checkCollision(players[i].r, pt->camera))
@@ -886,13 +904,6 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                         "P%d", i + 1);
                 }
             }
-            /*
-            if (players[i].crosshair.show) 
-            {
-                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-                SDL_RenderFillRect(r, &players[i].crosshair.r);
-            }
-            */
         }
     }
 
@@ -1244,15 +1255,8 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
                                             closeNet(&pt->network);
                                             pt->is_net = false;
 
-                                            for (unsigned i = 0; i < MAX_GAME_USERS; i++)
-                                            {
-                                                resetPlayer(
-                                                    &pt->players[i],
-                                                    pt->level.r.w >> 1, 
-                                                    pt->level.r.h >> 1);
+                                            resetPlay(pt, pt->players, true);
 
-                                                pt->players[i].id = 0;
-                                            }
                                             pt->c_player = &pt->players[0];
                                             pt->c_player->spawned = true;
                                         }
@@ -1550,19 +1554,15 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
                                     pt->is_net = true;
 
                                     resetPuck(&pt->puck, 0, 0);
-                                    
-                                    for (int i = 0; i < 2; i++) 
-                                        resetPlayer(
-                                            &pt->players[i], 
-                                            pt->level.r.w >> 1, 
-                                            pt->level.r.h >> 1);
-
-                                    //pt->players[0].id = pt->network.localuser.id;
-                                    //pt->players[0].spawned = true;
+                                    resetPlay(pt, pt->players, false);
 
                                     pt->g_state = G_PLAY;
                                 }
-                                else pt->g_state = G_MENU;
+                                else 
+                                {
+                                    closeNet(&pt->network);
+                                    pt->g_state = G_MENU;
+                                }
                             }
                             resetInputField(&pt->input_field);
                         }
@@ -1648,14 +1648,17 @@ void inputsHost(P_TEST *pt, SDL_Event ev)
                                     pt->is_net = true;
 
                                     resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
-
-                                    for (int i = 0; i < 2; i++) 
-                                        resetPlayer(&pt->players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
+                                    resetPlay(pt, pt->players, false);
 
                                     pt->players[0].id = HOST_ID;
                                     pt->players[0].spawned = true;
 
                                     pt->g_state = G_PLAY;
+                                }
+                                else 
+                                {
+                                    closeNet(&pt->network);
+                                    pt->g_state = G_MENU;
                                 }
                             }
                             resetInputField(&pt->input_field);
@@ -1716,10 +1719,9 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                                 pt->c_player->m_hold = true;
                             else if (pt->c_player->state == PLR_SKATE_NP)
                             {
-                                pt->c_player->gvel -= pt->c_player->gvel * 0.25f;
+                                pt->c_player->gvel -= STANDARD_VELOCITY * 0.25f;
                                 pt->c_player->state = PLR_SWING;
                             }
-                            
                         break;
                         case SDLK_LSHIFT:
                             if (pt->c_player->state == PLR_SKATE_NP)
@@ -1789,15 +1791,13 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                     break;
                     case SDLK_SPACE:
                     case SDLK_KP_SPACE:
-                        if (pt->c_player->state == PLR_SKATE_WP)
+                        if (pt->c_player->state == PLR_SKATE_WP 
+                        || pt->c_player->state == PLR_SHOOT_MAX)
                         {
-                            if (pt->c_player->swing_timer > 60)
-                                pt->c_player->state = PLR_SHOOT_MAX;
-                            else 
-                                pt->c_player->state = PLR_SHOOT;
+                            pt->c_player->swing_timer = 0;
+                            pt->c_player->m_hold = false;
+                            pt->c_player->state = PLR_SHOOT;
                         }
-                        pt->c_player->m_hold = false;
-                        pt->c_player->swing_timer = 0;
                     break;
                 }
             break;
@@ -1826,16 +1826,7 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                         pt->is_net = false;
 
                         resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
-
-                        for (unsigned i = 0; i < MAX_GAME_USERS; i++)
-                        {
-                            resetPlayer(
-                                &pt->players[i],
-                                pt->level.r.w >> 1, 
-                                pt->level.r.h >> 1);
-
-                            pt->players[i].id = 0;
-                        }
+                        resetPlay(pt, pt->players, true);
 
                         pt->c_player = &pt->players[0];
                         pt->c_player->spawned = true;
@@ -2027,16 +2018,7 @@ void updateGame(P_TEST *pt, P players[])
             // disconnect from net here
             closeNet(&pt->network);
             pt->is_net = false;
-
-            for (unsigned i = 0; i < MAX_GAME_USERS; i++)
-            {
-                resetPlayer(
-                    &pt->players[i], 
-                    pt->level.r.w >> 1, 
-                    pt->level.r.h >> 1);
-
-                pt->players[i].id = 0;
-            }
+            resetPlay(pt, pt->players, true);
             // set local player to first
             pt->c_player = &pt->players[0];
             pt->c_player->spawned = true;
@@ -2368,10 +2350,8 @@ void updateGameGoal(P_TEST *pt, P players[])
 
     if (++pt->SCORE_timer > 240)
     {
-        for (int i = 0; i < MAX_GAME_USERS; i++) 
-            resetPlayer(&players[i], pt->level.r.w >> 1, pt->level.r.h >> 1);
-        
         resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
+        resetPlay(pt, pt->players, false);
 
         pt->sprint_hud_r.w = 0;
 
@@ -2834,7 +2814,8 @@ void updatePlayerInputs(P *p)
                 p->AIM_angle = INPUT_DOWN;
         break;
         default:
-            p->AIM_angle = p->INPUT_angle;
+            if (p->JOY_vel)
+                p->AIM_angle = p->INPUT_angle;
         break;
     }
 }
@@ -2877,22 +2858,22 @@ void addPlayerVel(float *vel, float wave)
 {
     if (*vel > wave)
     {
-        if ((*vel -= 0.375f) < wave) *vel = wave;
+        if ((*vel -= 0.25f) < wave) *vel = wave;
     }
     else if (*vel < wave)
     {
-        if ((*vel += 0.375f) > wave) *vel = wave;
+        if ((*vel += 0.25f) > wave) *vel = wave;
     }
 }
 void subPlayerVel(float *vel)
 {
     if (*vel > 0)
     {
-        if ((*vel -= 0.125f) < 0) *vel = 0;
+        if ((*vel -= 0.075f) < 0) *vel = 0;
     }
     else if (*vel < 0)
     {
-        if ((*vel += 0.125f) > 0) *vel = 0;
+        if ((*vel += 0.075f) > 0) *vel = 0;
     }
 }
 
@@ -3009,7 +2990,7 @@ void updateGoalKeepers(P_TEST *pt, P players[], bool grab)
 {
     if (!pt->PUCK_freeze)
     {
-        for (unsigned char g = 0; g < GOALKEEPERS; g++)
+        for (unsigned char g = 0; g < GOALS; g++)
         {
             switch (pt->goalie[g].state)
             {
@@ -3038,16 +3019,14 @@ void updateGoalKeepers(P_TEST *pt, P players[], bool grab)
                                     printf("PUCK: collide with gk: %d on side %d\n", g+1, side);
                                     pt->puck.state = P_STATE_HIT;
                                     pt->puck.yvel = -pt->puck.yvel;
-                                    //pt->puck.fvelx += 0.02f;
-                                    pt->puck.fvely += 0.1f;
+                                    pt->puck.fvely += 0.3f;
                                 break;
                                 case 3: // left
                                 case 4: // right
                                     printf("PUCK: collide with gk: %d on side %d\n", g+1, side);
                                     pt->puck.state = P_STATE_HIT;
                                     pt->puck.xvel = -pt->puck.xvel;
-                                    pt->puck.fvelx += 0.1f;
-                                    //pt->puck.fvely += 0.02f;
+                                    pt->puck.fvelx += 0.3f;
                                 break;
                             }
                         }
@@ -3147,7 +3126,7 @@ void updateGoalKeepers(P_TEST *pt, P players[], bool grab)
 
 void updateNetGoalKeepers(P_TEST *pt, bool grab)
 {
-    for (unsigned char g = 0; g < GOALKEEPERS; g++)
+    for (unsigned char g = 0; g < GOALS; g++)
     {
         switch (pt->goalie[g].state)
         {
@@ -3427,6 +3406,12 @@ void updateNetGame(P_TEST *pt, P plrs[])
     {
         if (plrs[i].spawned)
         {
+            plrs[i].AIM_deg = (plrs[i].AIM_angle * 180) / AIM_PI;
+
+            if (plrs[i].AIM_deg < 0) plrs[i].AIM_deg += 360;
+
+            setPlayerFace(plrs[i].AIM_deg, &plrs[i].facing);
+
             if (plrs[i].state == PLR_BLOCK)
             {
                 switch (plrs[i].facing)
@@ -3467,6 +3452,9 @@ void updateNetGame(P_TEST *pt, P plrs[])
             plrs[i].club_r.x = plrs[i].r.x + plrs[i].AIM_radx;
             plrs[i].club_r.y = plrs[i].r.y + plrs[i].AIM_rady;
 
+            plrs[i].crosshair.r.x = plrs[i].club_r.x + 10 - pt->camera.x;
+            plrs[i].crosshair.r.y = plrs[i].club_r.y + 10 - pt->camera.y;
+
             animatePlayer(&plrs[i]);
         }
     }
@@ -3484,6 +3472,13 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
                 {
                     if (pt->network.players_net[j].id != pt->c_player->id)
                     {
+                        if (pt->network.players_net[j].x != plrs[i].x || 
+                        pt->network.players_net[j].y != plrs[i].y)
+                        {
+                            plrs[i].input_q[0] = 1;
+                        }
+                        else plrs[i].input_q[0] = 0;
+
                         plrs[i].x = pt->network.players_net[j].x;
                         plrs[i].y = pt->network.players_net[j].y;
                         plrs[i].AIM_angle = pt->network.players_net[j].angle;
@@ -3491,12 +3486,20 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
                     }
                     else if (pt->network.players_net[j].id == pt->c_player->id)
                     {
-                        if (pt->network.players_net[j].state == PLR_SHOOT)
+                        if (pt->p_state == P_DROP)
                         {
-                            printf("PLAYER: %d shoot from host\n", pt->c_player->id);
-                            plrs[i].gvel -= pt->c_player->gvel * 0.25f;
-                            plrs[i].state = PLR_SWING;
-                            pt->puck.state = P_STATE_HIT;
+                            pt->c_player->x = pt->network.players_net[j].x;
+                            pt->c_player->y = pt->network.players_net[j].y;
+                        }
+                        else 
+                        {
+                            if (pt->network.players_net[j].state == PLR_SHOOT)
+                            {
+                                printf("PLAYER: %d shoot from host\n", pt->c_player->id);
+                                plrs[i].gvel -= pt->c_player->gvel * 0.25f;
+                                plrs[i].state = PLR_SWING;
+                                //pt->puck.state = P_STATE_HIT;
+                            }
                         }
                     }
 
@@ -3516,6 +3519,13 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
                     {
                         if (plrs[i].state == PLR_SKATE_WP)
                             plrs[i].state = PLR_SKATE_NP;
+                        else if (plrs[i].state == PLR_SHOOT 
+                        || plrs[i].state == PLR_SHOOT_MAX)
+                        {
+                            plrs[i].m_hold = false;
+                            plrs[i].swing_timer = 0;
+                            plrs[i].state = PLR_SWING; 
+                        }
 
                         pt->puck.state = P_STATE_NORMAL;
                     }
@@ -3527,6 +3537,8 @@ void updateNetPlayers(P_TEST *pt, P plrs[])
 
 void updateNetHostGame(P_TEST *pt, P plrs[])
 {
+    unsigned char i = 0;
+
     if (!plrs[pt->network.numplayers - 1].id)
     {
         if (pt->network.players_net[pt->network.numplayers - 1].id)
@@ -3540,7 +3552,7 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
         }
     }
 
-    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    for (; i < MAX_GAME_USERS; i++)
     {
         if (plrs[i].spawned)
         {
@@ -3550,14 +3562,25 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                 {
                     if (pt->network.players_net[j].id != pt->c_player->id)
                     {
-                        if (!(pt->network.players_net[j].state == PLR_SKATE_WP 
-                        && pt->puck.state == P_STATE_NORMAL))
-                            plrs[i].state = pt->network.players_net[j].state;
-                        else 
-                            plrs[i].state = PLR_SKATE_NP;
+                        if (pt->p_state != P_DROP)
+                        {
+                            if (!(pt->network.players_net[j].state == PLR_SKATE_WP 
+                            && pt->puck.state == P_STATE_NORMAL))
+                                plrs[i].state = pt->network.players_net[j].state;
+                            else 
+                                plrs[i].state = PLR_SKATE_NP;
 
-                        plrs[i].x = pt->network.players_net[j].x;
-                        plrs[i].y = pt->network.players_net[j].y;
+                            if (pt->network.players_net[j].x != plrs[i].x 
+                            || pt->network.players_net[j].y != plrs[i].y)
+                            {
+                                plrs[i].input_q[0] = 1;
+                            }
+                            else plrs[i].input_q[0] = 0;
+                        
+                            plrs[i].x = pt->network.players_net[j].x;
+                            plrs[i].y = pt->network.players_net[j].y;
+                        }
+
                         plrs[i].AIM_angle = pt->network.players_net[j].angle;
                     }
                 }
@@ -3565,10 +3588,72 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
         }
     }
 
+    switch (pt->p_state)
+    {
+        case P_DROP:
+            if (!pt->state_change)
+            {
+                pt->network.puck.id = 0;
+
+                resetPuck(
+                    &pt->puck, 
+                    pt->level.r.w >> 1, 
+                    pt->level.r.h >> 1);
+
+                for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+                {
+                    if (plrs[i].spawned)
+                    {
+                        resetPlayer(&plrs[i], pt->level.r.w >> 1, (pt->level.r.h >> 1) + 40);
+                        plrs[i].spawned = true;
+                    }
+                }
+
+                pt->state_change = true;
+            }
+            
+            if (++pt->STATE_timer > 180)
+            {
+                pt->STATE_timer = 0;
+                pt->state_change = false;
+                pt->network.client_data_interrupt = false;
+                pt->p_state = P_PLAY;
+            }
+            else 
+            {
+                for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+                {
+                    if (plrs[i].spawned)
+                    {
+                        plrs[i].x = pt->level.r.w >> 1;
+                        plrs[i].y = (pt->level.r.h >> 1) + 40;
+                    }
+                }
+            }
+        break;
+        case P_PLAY:
+            for (i = 0; i < GOALS; i++)
+            {
+                if (checkGoal(pt->puck.r, pt->goal_r[i]))
+                {
+                    pt->p_state = P_GOAL;
+                }
+            }
+        break;
+        case P_GOAL:
+            if (++pt->SCORE_timer > 180)
+            {
+                pt->SCORE_timer = 0;
+                pt->network.client_data_interrupt = true;
+                pt->p_state = P_DROP;
+            }
+        break;
+    }
+
     if (pt->c_player->state != PLR_BLOCK) 
         updatePlayerInputs(pt->c_player);
 
-    if (pt->c_player->JOY_vel)
+    if (pt->c_player->JOY_vel && pt->c_player->state != PLR_SHOOT_MAX)
     {
         float   cos = (
             SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->gvel),
@@ -3593,12 +3678,12 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
     if (pt->c_player->yvel) 
         updatePlayerY(pt->c_player, pt->level);
 
-    if (pt->c_player->state_wait)
+    if (pt->c_player->m_hold)
     {
-        if (++pt->c_player->state_timer > 10)
+        if (++pt->c_player->swing_timer > 30)
         {
-            pt->c_player->state_timer = 0;
-            pt->c_player->state_wait = false;
+            pt->c_player->swing_timer = 31;
+            pt->c_player->state = PLR_SHOOT_MAX;
         }
     }
 
@@ -3629,7 +3714,7 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                         }
                     }
 
-                    if (pt->puck.state == P_STATE_NORMAL)
+                    if (pt->puck.state == P_STATE_NORMAL && pt->p_state == P_PLAY)
                     {
                         if (checkCollision(plrs[i].r, pt->puck.r))
                         {
@@ -3658,13 +3743,15 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                         shootPuck(
                             &pt->puck, 
                             plrs[i].pvel, 
-                            plrs[i].x - 4, plrs[i].y, 
+                            plrs[i].x - 4, plrs[i].y + 10, 
                             plrs[i].AIM_angle
                         );
 
                         pt->PUCK_freeze = true; 
                         
                         plrs[i].gvel -= plrs[i].gvel * 0.25f;
+                        plrs[i].pvel = MIN_SHOOT_VELOCITY;
+                        plrs[i].state_timer = 0;
                         plrs[i].state = PLR_SWING;
 
                         pt->network.puck.id = 0;
@@ -3672,12 +3759,19 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                         //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
                     }
                 break;
+                case PLR_SHOOT_MAX: // make sure player has the highest shoot velocity
+                    plrs[i].pvel = MAX_SHOOT_VELOCITY;
+
+                    if (++plrs[i].state_timer > 7) 
+                        plrs[i].state_timer = 0;
+                break;
                 case PLR_SWING:
                     if (pt->puck.state == P_STATE_GRAB)
                     {
                         for (unsigned char j = 0; j < MAX_GAME_USERS; j++)
                         {
-                            if (plrs[j].state == PLR_SKATE_WP
+                            if ((plrs[j].state == PLR_SKATE_WP 
+                            || plrs[j].state == PLR_SHOOT_MAX)
                             && checkCollision(plrs[i].club_r, plrs[j].r))
                             {
                                 printf(
@@ -3687,7 +3781,7 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                                 // puck goes wild
                                 shootPuck(
                                     &pt->puck, 1.5f, 
-                                    plrs[i].x - 4, plrs[i].y, 
+                                    plrs[j].x - 4, plrs[j].y, 
                                     plrs[i].AIM_angle);
 
                                 plrs[j].state = PLR_SKATE_NP;
@@ -3735,8 +3829,10 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
             {
                 if (plrs[i].id == pt->network.players_net[j].id)
                 {
-                    pt->network.players_net[j].state = plrs[i].state;
                     pt->network.players_net[j].angle = plrs[i].AIM_angle;
+                    pt->network.players_net[j].x = plrs[i].x;
+                    pt->network.players_net[j].y = plrs[i].y;
+                    pt->network.players_net[j].state = plrs[i].state;
                 }
             }
         }
@@ -3744,6 +3840,8 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 
     updatePuck(pt, plrs);
     updateGoalKeepers(pt, plrs, pt->network.puck.id);
+
+    pt->network.play_state = pt->p_state;
 
     pt->network.goalkeepers.gk1_status = pt->goalie[0].state;
     pt->network.goalkeepers.gk2_status = pt->goalie[1].state;
@@ -3754,11 +3852,31 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 
 void updateNetClientGame(P_TEST *pt, P plrs[])
 {
+    pt->p_state = pt->network.play_state;
+    
     pt->goalie[0].state = pt->network.goalkeepers.gk1_status;
     pt->goalie[1].state = pt->network.goalkeepers.gk1_status;
 
     pt->puck.x = pt->network.puck.x;
     pt->puck.y = pt->network.puck.y;
+
+    switch (pt->p_state)
+    {
+        case P_DROP:
+            pt->puck.state = P_STATE_NORMAL;
+
+            resetPlayer(
+                pt->c_player, 
+                pt->level.r.w >> 1, 
+                pt->level.r.h >> 1);
+
+            pt->c_player->spawned = true;
+        break;
+        case P_PLAY:
+        break;
+        case P_GOAL:
+        break;
+    }
 
     updateNetPlayers(pt, plrs);
     updateNetGoalKeepers(pt, pt->network.puck.id);
@@ -3766,7 +3884,7 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
     if (pt->c_player->state != PLR_BLOCK) 
         updatePlayerInputs(pt->c_player);
 
-    if (pt->c_player->JOY_vel)
+    if (pt->c_player->JOY_vel && pt->c_player->state != PLR_SHOOT_MAX)
     {
         float   cos = (
             SDL_cos(pt->c_player->INPUT_angle) * pt->c_player->gvel),
@@ -3802,9 +3920,10 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
 
     if (pt->c_player->m_hold)
     {
-        if (++pt->c_player->swing_timer > 60)
+        if (++pt->c_player->swing_timer > 30)
         {
-            pt->c_player->swing_timer = 61;
+            pt->c_player->swing_timer = 31;
+            pt->c_player->state = PLR_SHOOT_MAX;
         }
     }
     
@@ -3824,6 +3943,8 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
         case PLR_SHOOT: // do i need this client side?
         break;
         case PLR_SHOOT_MAX:
+            if (++pt->c_player->state_timer > 7) 
+                pt->c_player->state_timer = 0;
         break;
         case PLR_SWING:
             if ((++pt->c_player->swing_timer) > 10)
@@ -3923,8 +4044,8 @@ void setupPlay(P_TEST *pt, P *player)
     
     pt->p_state = P_PLAY;
 
-    pt->c_player->club_r.x = pt->c_player->x - 8 + pt->c_player->AIM_radx;
-    pt->c_player->club_r.y = pt->c_player->y - 8 + pt->c_player->AIM_rady;
+    pt->c_player->club_r.x = pt->c_player->x + pt->c_player->AIM_radx;
+    pt->c_player->club_r.y = pt->c_player->y + pt->c_player->AIM_rady;
 
     pt->puck.x = pt->level.r.w >> 1;
     pt->puck.y = pt->level.r.h >> 1;
@@ -4077,18 +4198,17 @@ void removePlayerGame(P *p)
     p->spawned = false;
 }
 
-void resetPlay(P_TEST *pt, P *player)
+void resetPlay(P_TEST *pt, P plrs[], bool id)
 {
-    pt->camera.x = 0;
-    pt->camera.y = 0;
+    for (unsigned i = 0; i < MAX_GAME_USERS; i++)
+    {
+        resetPlayer(
+            &plrs[i],
+            pt->level.r.w >> 1, 
+            pt->level.r.h >> 1);
 
-    player->xvel = 0;
-    player->yvel = 0;
-
-    player->state = PLR_SKATE_NP;
-
-    for (int i = 0; i < 4; i++)
-        pt->c_player->input_q[i] = 0;
+        if (id) pt->players[i].id = 0;
+    }
 }
 
 void resetPlayer(P *p, int sx, int sy)
@@ -4128,18 +4248,20 @@ void resetPlayer(P *p, int sx, int sy)
     p->sprint_timer = 0;
     p->sprint_cdown_timer = 0;
     p->block_timer = 0;
+    p->swing_timer = 0;
+    p->state_timer = 0;
 
     p->c_index = 0;
     p->facing = 0;
     p->a_index = 0;
 
-    p->x = p->mx << 4;
-    p->y = p->my << 4;
+    p->x = sx;
+    p->y = sy;
     p->r.x = p->x;
     p->r.y = p->y;
 
-    p->club_r.x = p->x - 8 + p->AIM_radx;
-    p->club_r.y = p->y - 8 + p->AIM_rady;
+    p->club_r.x = p->x + p->AIM_radx;
+    p->club_r.y = p->y + p->AIM_rady;
 }
 
 void resetPuck(Puck *p, int mx, int my)
