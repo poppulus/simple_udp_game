@@ -136,13 +136,13 @@ void initNet(NET *net)
 {
     net->numusers = 0;
     net->numplayers = 0;
-    net->play_state = 0;
+    net->play_state = GNET_PLAY;
 
     net->lost = 0;
     net->tquit = 0;
     net->join = 0;
     net->left = 0;
-    net->client_data_interrupt = 0;
+    net->ok = 0;
 
     net->thread = NULL;
     net->users = NULL;
@@ -316,7 +316,7 @@ int host_thread(void *ptr)
                         net->users, 
                         net->players_net, 
                         net->connection.pks[PEER_PACKET],
-                        net->client_data_interrupt);
+                        net->play_state);
                 break;
             }
         } 
@@ -520,6 +520,8 @@ int client_thread(void *ptr)
                             net->connection.pks[PEER_PACKET], 
                             net->connection.pks[HOST_PACKET]->address, 
                             net->localuser.id, net->localplayer);
+                        
+                        net->ok = 1;
                     }
                     else if (net->localuser.status == N_PLAY)
                     {
@@ -956,7 +958,7 @@ void hostHandleNewId(UDPuser *users, P_NET *players, unsigned char peerid, unsig
     }
 }
 
-void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, int interrupt)
+void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, unsigned char state)
 {
     float *angle = (float *)&pack->data[NET_CLIENT_USERANGLE];
     short *buffer = (short *)&pack->data[NET_CLIENT_USERPOS];
@@ -975,7 +977,7 @@ void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, int interru
                 {
                     players[j].angle = *angle;
 
-                    if (!interrupt)
+                    if (state != GNET_DROP)
                     {
                         players[j].x = buffer[0];
                         players[j].y = buffer[1];

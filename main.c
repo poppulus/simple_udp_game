@@ -44,7 +44,7 @@ int main(int argc, const char *argv[])
                     P_TEST play_test;
                     P players[MAX_GAME_USERS];
                     P_G goalie[2];
-                    SDL_Rect buttons[3], p_clips[12], goal_r[2], gk_r[2], plr_hud[MAX_GAME_USERS];
+                    SDL_Rect buttons[4], p_clips[12], goal_r[2], gk_r[2], plr_hud[MAX_GAME_USERS];
                     Uint64 timer; 
                     int delta;
 
@@ -126,38 +126,9 @@ int main(int argc, const char *argv[])
                         {
                             timer = SDL_GetTicks64();
 
-                            SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
-                            SDL_RenderClear(renderer);
-
-                            // ONLY for testing !!!
-                            switch (play_test.g_state)
-                            {
-                                case G_JOIN:
-                                    inputsJoin(&play_test, e);
-                                break;
-                                case G_HOST:
-                                    inputsHost(&play_test, e);
-                                break;
-                                case G_HOSTING:
-                                case G_JOINING:
-                                    while (SDL_PollEvent(&e) != 0)
-                                    {
-                                        if (e.type == SDL_QUIT) play_test.quit = true;
-                                        else if (e.type == SDL_KEYDOWN 
-                                        && e.key.keysym.sym == SDLK_ESCAPE) 
-                                            play_test.network.tquit = true;
-                                    }
-                                break;
-                                default: 
-                                    if (play_test.is_net) inputsNetGame(&play_test, e);
-                                    else inputsGame(&play_test, e);
-                                break;
-                            }
-
+                            inputsGame(&play_test, e);
                             updateGame(&play_test, players);
                             renderGame(renderer, font, &play_test, players);
-                            
-                            SDL_RenderPresent(renderer);
 
                             // limit framerate to ~60 
                             delta = SDL_GetTicks64() - timer;

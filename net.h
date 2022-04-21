@@ -113,7 +113,7 @@ typedef struct NETWORKING
     GK_NET goalkeepers;
     PUCK_NET puck;
     unsigned char numusers, numplayers, play_state;
-    int lost:1, tquit:1, join:1, left:1, client_data_interrupt:1;
+    int lost:1, tquit:1, join:1, left:1, ok:1;
 } NET;
 
 void closeNet(NET *net);
@@ -172,7 +172,7 @@ void hostHandleNewId(
     unsigned char *numplayers
 );
 
-void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, int interrupt);
+void hostHandlePlay(UDPuser *users, P_NET *players, UDPpacket *pack, unsigned char state);
 
 void hostSendConnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);
 void hostSendDisconnect(UDPpacket *p, IPaddress ip, unsigned char nplrs);

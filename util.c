@@ -592,6 +592,7 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     p->block_timer = 0;
     p->state_timer = 0;
     p->swing_timer = 0;
+    p->a_counter = 0;
 
     p->c_index = 0;
     p->facing = 0;
@@ -630,20 +631,23 @@ void initPlayer(P *p, L level, unsigned char buffer[])
 
 void initButtons(SDL_Rect *btns)
 {
-    btns[0].w = 320;
-    btns[0].h = 40;
+    for (unsigned char i = 0; i < 4; i++)
+    {
+        btns[i].w = 320;
+        btns[i].h = 40;
+    }
+    
     btns[0].x = (W_WIDTH >> 1) - 160;
-    btns[0].y = (W_HEIGHT >> 1) - 80;
+    btns[0].y = (W_HEIGHT >> 1) - 160;
 
-    btns[1].w = 320;
-    btns[1].h = 40;
     btns[1].x = (W_WIDTH >> 1) - 160;
-    btns[1].y = (W_HEIGHT >> 1);
+    btns[1].y = (W_HEIGHT >> 1) - 80;
 
-    btns[2].w = 320;
-    btns[2].h = 40;
     btns[2].x = (W_WIDTH >> 1) - 160;
-    btns[2].y = (W_HEIGHT >> 1) + 80;
+    btns[2].y = (W_HEIGHT >> 1);
+
+    btns[3].x = (W_WIDTH >> 1) - 160;
+    btns[3].y = (W_HEIGHT >> 1) + 80;
 }
 
 void initPlayerClips(SDL_Rect clips[])
@@ -719,30 +723,75 @@ void setPlayerFace(float deg, enum PLAYER_FACING *face)
         *face = FACING_UP;
 }
 
-void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
+void renderGameMain(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+{
+    for (unsigned char i = 0; i < 4; i++)
+    {
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+        SDL_RenderFillRect(r, &pt->buttons[i]);
+
+        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+        SDL_RenderDrawRect(r, &pt->buttons[i]);
+
+        switch (i)
+        {
+            case 0:
+                FC_Draw(
+                    f, r, 
+                    (pt->buttons[i].x + 64),
+                    pt->buttons[i].y + 10, 
+                    "Play Local");
+            break;
+            case 1:
+                FC_Draw(
+                    f, r, 
+                    (pt->buttons[i].x + 128), 
+                    pt->buttons[i].y + 10, 
+                    "Host");
+            break;
+            case 2:
+                FC_Draw(
+                    f, r, 
+                    (pt->buttons[i].x + 128), 
+                    pt->buttons[i].y + 10, 
+                    "Join");
+            break;
+            case 3:
+                FC_Draw(
+                    f, r, 
+                    (pt->buttons[i].x + 128), 
+                    pt->buttons[i].y + 10, 
+                    "Exit");
+            break;
+        }
+    }
+}
+void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 {
     unsigned char i = 0;
 
     // background 
-    SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-    SDL_RenderFillRect(r, &pt->screen);
+    //SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+    //SDL_RenderFillRect(r, &pt->screen);
 
     // tiles
     renderPlayTiles(r, *pt);
 
     //sprint cooldown
+    /*
     if (pt->c_player->sprint_cdown)
     {
         SDL_SetRenderDrawColor(r, 0x00, 0x00, 0xff, 0xff);
         SDL_RenderFillRect(r, &pt->sprint_hud_r);
     }
+    */
 
     SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
     SDL_RenderDrawRects(r, pt->plr_hud, 4);
 
     for (; i < MAX_GAME_USERS; i++)
     {
-        if (players[i].spawned)
+        if (pt->players[i].spawned)
         {
             FC_DrawColor(
                 f, r, 
@@ -752,7 +801,7 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
         }
     }
 
-    for (i = 0; i < 2; i++)
+    for (i = 0; i < GOALS; i++)
     {
         SDL_Rect gq = {
             pt->goal_r[i].x - pt->camera.x, 
@@ -782,22 +831,22 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 
     for (i = 0; i < MAX_GAME_USERS; i++)
     {
-        if (players[i].spawned)
+        if (pt->players[i].spawned)
         {
             SDL_Rect cq = {
-                players[i].club_r.x - pt->camera.x, 
-                players[i].club_r.y - pt->camera.y, 
-                players[i].club_r.w, 
-                players[i].club_r.h
+                pt->players[i].club_r.x - pt->camera.x, 
+                pt->players[i].club_r.y - pt->camera.y, 
+                pt->players[i].club_r.w, 
+                pt->players[i].club_r.h
             },
             plq = {
-                players[i].r.x - pt->camera.x, 
-                players[i].r.y - pt->camera.y, 
-                players[i].r.w, 
-                players[i].r.h
+                pt->players[i].r.x - pt->camera.x, 
+                pt->players[i].r.y - pt->camera.y, 
+                pt->players[i].r.w, 
+                pt->players[i].r.h
             };
 
-            switch (players[i].state)
+            switch (pt->players[i].state)
             {
                 case PLR_SKATE_WP:
                     // player hitbox
@@ -808,9 +857,9 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                 break;
                 case PLR_SHOOT_MAX:
                     // player hitbox
-                    if (players[i].state_timer < 4)
+                    if (pt->players[i].state_timer < 4)
                         SDL_SetRenderDrawColor(r, 0xff, 0x00, 0x00, 0xff);
-                    else if (players[i].state_timer >= 4)
+                    else if (pt->players[i].state_timer >= 4)
                         SDL_SetRenderDrawColor(r, 0x00, 0xff, 0x00, 0xff);
 
                     SDL_RenderFillRect(r, &plq);
@@ -835,31 +884,31 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 
             // player directional crosshair
             SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-            SDL_RenderFillRect(r, &players[i].crosshair.r);
+            SDL_RenderFillRect(r, &pt->players[i].crosshair.r);
             
             // player texture
-            if (checkCollision(players[i].r, pt->camera))
+            if (checkCollision(pt->players[i].r, pt->camera))
             {
                 FC_DrawColor(
                     f, r, 
-                    players[i].r.x - pt->camera.x, 
-                    players[i].r.y - 32 - pt->camera.y, 
+                    pt->players[i].r.x - pt->camera.x, 
+                    pt->players[i].r.y - 32 - pt->camera.y, 
                     FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
                     "P%d", i + 1);
 
                 renderPlayer(
                     r, 
-                    players[i].texture->t,
-                    &players[i], 
+                    pt->players[i].texture->t,
+                    &pt->players[i], 
                     pt->camera.x, 
                     pt->camera.y);
             }
             else 
             {
-                int nx = players[i].r.x - pt->camera.x, 
-                    ny = players[i].r.y - 32 - pt->camera.y;
+                int nx = pt->players[i].r.x - pt->camera.x, 
+                    ny = pt->players[i].r.y - 32 - pt->camera.y;
 
-                if (players[i].r.x + players[i].r.w < pt->camera.x)
+                if (pt->players[i].r.x + pt->players[i].r.w < pt->camera.x)
                 {
                     if (ny < 0) ny = 10;
                     else if (ny > W_HEIGHT - 32) ny = W_HEIGHT - 32;
@@ -870,7 +919,7 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                         FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
                         "P%d", i + 1);
                 }
-                else if (players[i].r.x > pt->camera.x + pt->camera.w)
+                else if (pt->players[i].r.x > pt->camera.x + pt->camera.w)
                 {
                     if (ny < 0) ny = 10;
                     else if (ny > W_HEIGHT - 32) ny = W_HEIGHT - 32;
@@ -881,7 +930,7 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                         FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
                         "P%d", i + 1);
                 }
-                else if (players[i].r.y + players[i].r.h < pt->camera.y)
+                else if (pt->players[i].r.y + pt->players[i].r.h < pt->camera.y)
                 {
                     if (nx < 0) nx = 10;
                     else if (nx > W_WIDTH - 32) nx = W_WIDTH - 32;
@@ -892,7 +941,7 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
                         FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
                         "P%d", i + 1);
                 }
-                else if (players[i].r.y > pt->camera.y + pt->camera.h)
+                else if (pt->players[i].r.y > pt->camera.y + pt->camera.h)
                 {
                     if (nx < 0) nx = 10;
                     else if (nx > W_WIDTH - 32) nx = W_WIDTH - 32;
@@ -928,118 +977,132 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
             FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
             "SCORE!");
     }
-
-    if (pt->g_state == G_MENU)
+}
+void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+{
+    if (pt->is_net)
     {
-        if (!pt->is_net)
+        for (unsigned char i = 2; i < 4; i++)
         {
-            for (i = 0; i < 3; i++)
-            {
-                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-                SDL_RenderFillRect(r, &pt->buttons[i]);
+            SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+            SDL_RenderFillRect(r, &pt->buttons[i]);
 
-                SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-                SDL_RenderDrawRect(r, &pt->buttons[i]);
-
-                switch (i)
-                {
-                    case 0:
-                        FC_Draw(
-                            f, r, 
-                            (pt->buttons[i].x + 128), 
-                            pt->buttons[i].y + 10, 
-                            "Host");
-                    break;
-                    case 1:
-                        FC_Draw(
-                            f, r, 
-                            (pt->buttons[i].x + 128), 
-                            pt->buttons[i].y + 10, 
-                            "Join");
-                    break;
-                    case 2:
-                        FC_Draw(
-                            f, r, 
-                            (pt->buttons[i].x + 128), 
-                            pt->buttons[i].y + 10, 
-                            "Exit");
-                    break;
-                }
-            }
+            SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+            SDL_RenderDrawRect(r, &pt->buttons[i]);
         }
-        else
-        {   
-            for (i = 1; i < 3; i++)
+
+        FC_Draw(
+            f, r, 
+            (pt->buttons[2].x + 88), 
+            pt->buttons[2].y + 10, 
+            "Disconnect"); 
+
+        FC_Draw(
+            f, r, 
+            (pt->buttons[3].x + 128), 
+            pt->buttons[3].y + 10, 
+            "Exit");
+    }
+    else 
+    {
+        for (unsigned char i = 1; i < 4; i++)
+        {
+            SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+            SDL_RenderFillRect(r, &pt->buttons[i]);
+
+            SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+            SDL_RenderDrawRect(r, &pt->buttons[i]);
+
+            switch (i)
             {
-                SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-                SDL_RenderFillRect(r, &pt->buttons[i]);
-
-                SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-                SDL_RenderDrawRect(r, &pt->buttons[i]);
-
-                switch (i)
-                {
-                    case 1:
-                        FC_Draw(
-                            f, r, 
-                            (pt->buttons[1].x + 88), 
-                            pt->buttons[1].y + 10, 
-                            "Disconnect"); 
-                    break;
-                    case 2:
-                        FC_Draw(
-                            f, r, 
-                            (pt->buttons[2].x + 128), 
-                            pt->buttons[2].y + 10, 
-                            "Exit");
-                    break;
-                }
+                case 1:
+                    FC_Draw(
+                        f, r, 
+                        (pt->buttons[i].x + 128), 
+                        pt->buttons[i].y + 10, 
+                        "Host");
+                break;
+                case 2:
+                    FC_Draw(
+                        f, r, 
+                        (pt->buttons[i].x + 128), 
+                        pt->buttons[i].y + 10, 
+                        "Join");
+                break;
+                case 3:
+                    FC_Draw(
+                        f, r, 
+                        (pt->buttons[i].x + 128), 
+                        pt->buttons[i].y + 10, 
+                        "Exit");
+                break;
             }
         }
     }
-    else if (pt->g_state == G_JOIN || pt->g_state == G_HOST)
+    
+}
+void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+{
+    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderFillRect(r, &pt->buttons[1]);
+
+    SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+    SDL_RenderDrawRect(r, &pt->buttons[1]);
+
+    FC_Draw(
+        f, r, 
+        pt->buttons[1].x, 
+        pt->buttons[1].y + 10, 
+        pt->input_field.string);
+
+    SDL_RenderDrawLine(
+        r, 
+        pt->buttons[1].x + (pt->input_field.str_pointer << 4), 
+        pt->buttons[1].y, 
+        pt->buttons[1].x + (pt->input_field.str_pointer << 4),
+        pt->buttons[1].y + pt->buttons[1].h);
+}
+void renderGameHosting(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+{
+    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderFillRect(r, &pt->buttons[1]);
+
+    FC_Draw(
+        f, r, 
+        pt->buttons[1].x, 
+        pt->buttons[1].y + 10, 
+        "Hosting game ...");
+}
+void renderGameJoining(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+{
+    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderFillRect(r, &pt->buttons[1]);
+
+    FC_Draw(
+        f, r, 
+        pt->buttons[1].x, 
+        pt->buttons[1].y + 10, 
+        "Joining game ...");
+}
+
+void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
+{
+    SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+    SDL_RenderClear(r);
+
+    switch (pt->g_state)
     {
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-        SDL_RenderFillRect(r, &pt->buttons[1]);
-
-        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-        SDL_RenderDrawRect(r, &pt->buttons[1]);
-
-        FC_Draw(
-            f, r, 
-            pt->buttons[1].x, 
-            pt->buttons[1].y + 10, 
-            pt->input_field.string);
-
-        SDL_RenderDrawLine(
-            r, 
-            pt->buttons[1].x + (pt->input_field.str_pointer << 4), 
-            pt->buttons[1].y, 
-            pt->buttons[1].x + (pt->input_field.str_pointer << 4),
-            pt->buttons[1].y + pt->buttons[1].h);
+        case G_MAIN:        renderGameMain(r, f, pt);       break;
+        case G_PLAY:
+        case G_PLAY_NET:    renderGamePlay(r, f, pt);       break;
+        case G_MENU:        renderGameMenu(r, f, pt);       break;
+        case G_HOST:
+        case G_JOIN:        renderGameHostJoin(r, f, pt);   break;
+        case G_HOSTING:     renderGameHosting(r, f, pt);    break;
+        case G_JOINING:     renderGameJoining(r, f, pt);    break;
     }
-    else if (pt->g_state == G_HOSTING)
-    {
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-        SDL_RenderFillRect(r, &pt->buttons[1]);
 
-        FC_Draw(
-            f, r, 
-            pt->buttons[1].x, 
-            pt->buttons[1].y + 10, 
-            "Hosting setup ...");
-    }
-    else if (pt->g_state == G_JOINING)
-    {
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-        SDL_RenderFillRect(r, &pt->buttons[1]);
-
-        FC_Draw(
-            f, r, 
-            pt->buttons[1].x, 
-            pt->buttons[1].y + 10, 
-            "Joining setup ...");
-    }
+    SDL_RenderPresent(r);
 }
 
 void renderClientGame(SDL_Renderer *r, SDL_Rect cam, P players[])
@@ -1113,6 +1176,22 @@ void animatePlayer(P *p)
 
 void inputsGame(P_TEST *pt, SDL_Event ev)
 {
+    switch (pt->g_state)
+    {
+        case G_MAIN:        inputsGameMain(pt, ev);             break;
+        case G_PLAY:        //inputsGamePlay(pt, ev);             break;
+        case G_PLAY_NET:    inputsGamePlayNet(pt, ev);          break;
+        case G_MENU:        inputsGameMenu(pt, ev);             break;
+        case G_HOST:        inputsGameHost(pt, ev);             break;
+        case G_JOIN:        inputsGameJoin(pt, ev);             break;
+        case G_HOSTING:
+        case G_JOINING:     inputsGameHostingJoining(pt, ev);   break;
+    }
+}
+
+void inputsGamePlay(P_TEST *pt, SDL_Event ev)
+{
+    /*
     while (SDL_PollEvent(&ev) != 0)
     {
         switch (ev.type)
@@ -1477,16 +1556,34 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
             break;
         }
     }
+    */
 }
 
-void inputsJoin(P_TEST *pt, SDL_Event ev)
+void inputsGameHostingJoining(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        if (ev.type == SDL_QUIT) 
+        {
+            pt->quit = true;
+        }
+        else if (ev.type == SDL_KEYDOWN
+        && ev.key.keysym.sym == SDLK_ESCAPE)
+        {
+            closeNet(&pt->network);
+            pt->is_net = false;
+            pt->g_state = G_MAIN;
+        }
+    }
+}
+
+void inputsGameJoin(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
         switch (ev.type)
         {
-            case SDL_QUIT:
-                pt->quit = true;
+            case SDL_QUIT: pt->quit = true;
             break;
             case SDL_TEXTINPUT:
                 switch (ev.text.text[0])
@@ -1513,8 +1610,7 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
             case SDL_KEYDOWN:
                 switch (ev.key.keysym.sym)
                 {
-                    case SDLK_ESCAPE:
-                        pt->g_state = G_MENU;
+                    case SDLK_ESCAPE: pt->g_state = G_MAIN;
                     break;
                     case SDLK_BACKSPACE:
                         if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
@@ -1556,12 +1652,12 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
                                     resetPuck(&pt->puck, 0, 0);
                                     resetPlay(pt, pt->players, false);
 
-                                    pt->g_state = G_PLAY;
+                                    //pt->g_state = G_PLAY;
                                 }
                                 else 
                                 {
                                     closeNet(&pt->network);
-                                    pt->g_state = G_MENU;
+                                    pt->g_state = G_MAIN;
                                 }
                             }
                             resetInputField(&pt->input_field);
@@ -1573,14 +1669,13 @@ void inputsJoin(P_TEST *pt, SDL_Event ev)
     }
 }
 
-void inputsHost(P_TEST *pt, SDL_Event ev)
+void inputsGameHost(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
         switch (ev.type)
         {
-            case SDL_QUIT:
-                pt->quit = true;
+            case SDL_QUIT: pt->quit = true;
             break;
             case SDL_TEXTINPUT:
                 if (pt->input_field.str_len < 5)
@@ -1605,8 +1700,7 @@ void inputsHost(P_TEST *pt, SDL_Event ev)
             case SDL_KEYDOWN:
                 switch (ev.key.keysym.sym)
                 {
-                    case SDLK_ESCAPE:
-                        pt->g_state = G_MENU;
+                    case SDLK_ESCAPE: pt->g_state = G_MAIN;
                     break;
                     case SDLK_BACKSPACE:
                         if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
@@ -1653,6 +1747,8 @@ void inputsHost(P_TEST *pt, SDL_Event ev)
                                     pt->players[0].id = HOST_ID;
                                     pt->players[0].spawned = true;
 
+                                    pt->network.ok = true;
+
                                     pt->g_state = G_PLAY;
                                 }
                                 else 
@@ -1670,24 +1766,98 @@ void inputsHost(P_TEST *pt, SDL_Event ev)
     }
 }
 
-void inputsNetGame(P_TEST *pt, SDL_Event ev)
+void inputsGameMain(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        if (ev.type == SDL_QUIT)
+        {
+            pt->is_net = false;
+            pt->quit = true;
+        }
+        else if (ev.type == SDL_MOUSEBUTTONDOWN)
+        {
+            for (unsigned char i = 0; i < 4; i++)
+            {
+                if (checkMousePosition(
+                    ev.motion.x, ev.motion.y, pt->buttons[i])
+                )
+                {
+                    switch (i)
+                    {
+                        case 0: startLocalGame(pt);     break;
+                        case 1: pt->g_state = G_HOST;   break;
+                        case 2: pt->g_state = G_JOIN;   break;
+                        case 3: pt->quit = true;        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void inputsGameMenu(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
         switch (ev.type)
         {
-            case SDL_QUIT:
-                pt->is_net = false;
-                pt->quit = true;
+            case SDL_QUIT: pt->quit = true; 
+            break;
+            case SDL_KEYDOWN:
+                if (!ev.key.repeat && ev.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    if (pt->is_net) pt->g_state = G_PLAY_NET;
+                    else pt->g_state = G_PLAY;
+                }
+            break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (ev.button.button == SDL_BUTTON_LEFT)
+                {
+                    for (unsigned char i = 1; i < 4; i++)
+                    {
+                        if (checkMousePosition(
+                            ev.motion.x, ev.motion.y, pt->buttons[i])
+                        )
+                        {
+                            if (pt->is_net)
+                            {
+                                if (i == 2)
+                                {
+                                    closeNet(&pt->network);
+                                    pt->is_net = false;
+                                    pt->g_state = G_MAIN;
+                                }
+                                else if (i == 3) pt->quit = true; 
+                            }
+                            else 
+                            {
+                                if (i == 1) pt->g_state = G_HOST;
+                                else if (i == 2) pt->g_state = G_JOIN;
+                                else if (i == 3) pt->g_state = G_MAIN;
+                            }
+                        }
+                    }
+                }
+            break;
+        }
+    }
+}
+
+void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        switch (ev.type)
+        {
+            case SDL_QUIT: pt->quit = true; 
             break;
             case SDL_KEYDOWN:
                 if (!ev.key.repeat)
                 {
                     switch (ev.key.keysym.sym)
                     {
-                        case SDLK_ESCAPE:
-                            if (pt->g_state == G_PLAY) pt->g_state = G_MENU;
-                            else if (pt->g_state == G_MENU) pt->g_state = G_PLAY;
+                        case SDLK_ESCAPE: pt->g_state = G_MENU; 
                         break;
                         case SDLK_a: 
                             enqueue(pt->c_player->input_q, KEY_LEFT);
@@ -1802,6 +1972,7 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                 }
             break;
             case SDL_MOUSEBUTTONDOWN:
+                /*
                 if (pt->g_state == G_MENU && ev.button.button == SDL_BUTTON_LEFT)
                 {
                     if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[1]))
@@ -1837,9 +2008,17 @@ void inputsNetGame(P_TEST *pt, SDL_Event ev)
                         pt->is_net = false;
                     }
                 }
+                */
             break;
         }
     }
+}
+
+void startLocalGame(P_TEST *pt)
+{
+    resetPlay(pt, pt->players, true);
+    pt->c_player->spawned = true;
+    pt->g_state = G_PLAY;
 }
 
 void shootPuck(Puck *puck, float vel, float x, float y, float angle)
@@ -1940,91 +2119,45 @@ void updateBulletHits(B_HITS *hits, int bx, int by)
     if (++hits->index > 29) hits->index = 0;
 }
 
+void updateGameMain(P_TEST *pt)
+{
+
+}
+void updateGameMenu(P_TEST *pt)
+{
+
+}
+void updateGameHost(P_TEST *pt)
+{
+
+}
+void updateGameJoin(P_TEST *pt)
+{
+
+}
+void updateGameHosting(P_TEST *pt)
+{
+
+}
+void updateGameJoining(P_TEST *pt)
+{
+
+}
+
 void updateGame(P_TEST *pt, P players[])
 {
-    if (pt->is_net)
+    switch (pt->g_state)
     {
-        updateNetGame(pt, players);
-
-        if (pt->network.join)
-        {
-            printf("NET: player join\n");
-            pt->network.join = false;
-            for (unsigned char i = 0; i < pt->network.numplayers; i++)
-            {
-                if (!pt->players[i].id)
-                {
-                    addPlayerGame(
-                        &pt->players[i], 
-                        pt->network.players_net[i].id, 
-                        pt->network.players_net[i].x, 
-                        pt->network.players_net[i].y);
-
-                    printf("PLAYER: joined player %d\n", pt->players[i].id);
-                }
-
-                if (pt->players[i].id == pt->network.localplayer->id)
-                    pt->c_player = &pt->players[i];
-            }
-        }
-
-        if (pt->network.left)
-        {
-            printf("NET: player left\n");
-            pt->network.left = false;
-            unsigned char n = 0;
-            for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
-            {
-                for (unsigned char j = 0; j < pt->network.numplayers; j++)
-                {
-                    if (players[i].id == pt->network.players_net[j].id) 
-                    {
-                        n = 1;
-                        break;
-                    }
-                    else if (!players[i].id) 
-                    {
-                        n = 1; 
-                        break;
-                    }
-                }
-
-                if (!n)
-                {
-                    printf("PLAYER: found lost id:%d\n", players[i].id);
-
-                    if (pt->network.puck.id == players[i].id)
-                    {
-                        pt->puck.x = players[i].x;
-                        pt->puck.y = players[i].y;
-                        pt->network.puck.x = players[i].x;
-                        pt->network.puck.y = players[i].y;
-                        pt->network.puck.id = 0;
-                        pt->puck.state = P_STATE_NORMAL;
-                    }
-
-                    removePlayerGame(&players[i]);
-                }
-
-                if (pt->players[i].id == pt->network.localplayer->id)
-                    pt->c_player = &pt->players[i];
-
-                n = 0;
-            }
-        }
-        
-        if (pt->network.lost)
-        {
-            // disconnect from net here
-            closeNet(&pt->network);
-            pt->is_net = false;
-            resetPlay(pt, pt->players, true);
-            // set local player to first
-            pt->c_player = &pt->players[0];
-            pt->c_player->spawned = true;
-        }
+        default:                                            break;
+        case G_MAIN:        updateGameMain(pt);             break;
+        case G_PLAY:        updateGamePlay(pt, players);    break;
+        case G_PLAY_NET:    updateGamePlayNet(pt);          break;
+        case G_MENU:        updateGameMenu(pt);             break;
+        case G_HOST:        updateGameHost(pt);             break;
+        case G_JOIN:        updateGameJoin(pt);             break;
+        case G_HOSTING:     updateGameHosting(pt);          break;
+        case G_JOINING:     updateGameJoining(pt);          break;
     }
-    else updateLocalGame(pt, players);
 
     // set camera, duh
     setCamera(
@@ -2033,22 +2166,18 @@ void updateGame(P_TEST *pt, P players[])
             pt->camera.x + (pt->camera.w >> 1), 
             pt->rx, 0.08f), 
         (pt->level.r.h >> 1)
-        /*
-        lerp(
-            pt->camera.y + (pt->camera.h >> 1), 
-            pt->ry, 0.08f)
-        */
     );
+    /* not used on camera y position
+    lerp(pt->camera.y + (pt->camera.h >> 1), pt->ry, 0.08f)
+    */
 
     if (pt->camera.x < 0) pt->camera.x = 0;
     else if ((pt->camera.x + W_WIDTH) > pt->level.r.w) 
         pt->camera.x = pt->level.r.w - W_WIDTH;
 
-    /*
     if (pt->camera.y > 0) pt->camera.y = 0;
     else if ((pt->camera.y + W_HEIGHT) < pt->level.r.h) 
         pt->camera.y = pt->level.r.h - W_HEIGHT;
-    */
 }
 
 void updateGameDrop(P_TEST *pt, P players[])
@@ -2135,9 +2264,292 @@ void updateGameDrop(P_TEST *pt, P players[])
     }
 }
 
-void updateGamePlay(P_TEST *pt, P players[])
+void updateGamePlay(P_TEST *pt, P plrs[])
 {
-    for (unsigned char i = 0; i < 2; i++)
+    switch (pt->p_state)
+    {
+        case P_DROP:
+            if (!pt->state_change)
+            {
+                resetPuck(
+                    &pt->puck, 
+                    pt->level.r.w >> 1, 
+                    pt->level.r.h >> 1);
+
+                for (unsigned char p = 0; p < MAX_GAME_USERS; p++)
+                {
+                    if (plrs[p].spawned)
+                    {
+                        resetPlayer(&plrs[p], pt->level.r.w >> 1, (pt->level.r.h >> 1) + 40);
+                        plrs[p].spawned = true;
+                    }
+                }
+
+                pt->state_change = true;
+            }
+            
+            if (++pt->STATE_timer > 180)
+            {
+                pt->STATE_timer = 0;
+                pt->state_change = false;
+                pt->p_state = P_PLAY;
+            }
+            else 
+            {
+                for (unsigned char p = 0; p < MAX_GAME_USERS; p++)
+                {
+                    if (plrs[p].spawned)
+                    {
+                        plrs[p].x = pt->level.r.w >> 1;
+                        plrs[p].y = (pt->level.r.h >> 1) + 40;
+                    }
+                }
+            }
+        break;
+        case P_PLAY:
+            for (unsigned char i = 0; i < GOALS; i++)
+            {
+                if (checkGoal(pt->puck.r, pt->goal_r[i]))
+                {
+                    pt->p_state = P_GOAL;
+                }
+            }
+        break;
+        case P_GOAL:
+            if (++pt->SCORE_timer > 180)
+            {
+                pt->SCORE_timer = 0;
+                pt->p_state = P_DROP;
+            }
+        break;
+    }
+
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            switch (plrs[i].state)
+            {
+                default: break;
+                case PLR_SPRINT:
+                    if ((++plrs[i].sprint_cdown_timer) > 60)
+                    {
+                        plrs[i].sprint_cdown_timer = 0;
+                        plrs[i].gvel = STANDARD_VELOCITY;
+                        plrs[i].state = PLR_SKATE_NP;
+                    }
+                case PLR_SKATE_NP:
+                    if (plrs[i].state_wait)
+                    {
+                        if (++plrs[i].state_timer > 10)
+                        {
+                            plrs[i].state_timer = 0;
+                            plrs[i].state_wait = false;
+                        }
+                    }
+
+                    if (pt->puck.state == P_STATE_NORMAL && pt->p_state == P_PLAY)
+                    {
+                        if (checkCollision(plrs[i].r, pt->puck.r))
+                        {
+                            printf("PLAYER: %d pick up puck\n", plrs[i].id);
+                            pt->puck.state = P_STATE_GRAB;
+                            pt->puck.xvel = 0;
+                            pt->puck.yvel = 0;
+
+                            plrs[i].sprint_cdown_timer = 0;
+                            plrs[i].gvel = STANDARD_VELOCITY;
+                            plrs[i].state = PLR_SKATE_WP;
+                        }
+                    }
+
+                    plrs[i].r.x = plrs[i].x - 10;
+                    plrs[i].r.y = plrs[i].y;
+                break;
+                case PLR_SKATE_WP:
+                    pt->puck.x = plrs[i].x;
+                    pt->puck.y = plrs[i].y;
+
+                    plrs[i].r.x = plrs[i].x - 10;
+                    plrs[i].r.y = plrs[i].y;
+                break;
+                case PLR_SHOOT:
+                    if (pt->puck.state == P_STATE_GRAB)
+                    {
+                        printf("PLAYER: %d shoot puck\n", plrs[i].id);
+                    
+                        shootPuck(
+                            &pt->puck, 
+                            plrs[i].pvel, 
+                            plrs[i].x - 4, plrs[i].y + 10, 
+                            plrs[i].AIM_angle
+                        );
+
+                        pt->PUCK_freeze = true; 
+                        
+                        plrs[i].gvel -= plrs[i].gvel * 0.25f;
+                        plrs[i].pvel = MIN_SHOOT_VELOCITY;
+                        plrs[i].state_timer = 0;
+                        plrs[i].state = PLR_SWING;
+
+                        //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                    }
+
+                    plrs[i].r.x = plrs[i].x - 10;
+                    plrs[i].r.y = plrs[i].y;
+                break;
+                case PLR_SHOOT_MAX: // make sure player has the highest shoot velocity
+                    plrs[i].pvel = MAX_SHOOT_VELOCITY;
+
+                    if (++plrs[i].state_timer > 7) 
+                        plrs[i].state_timer = 0;
+
+                    plrs[i].r.x = plrs[i].x - 10;
+                    plrs[i].r.y = plrs[i].y;
+                break;
+                case PLR_SWING:
+                    if (pt->puck.state == P_STATE_GRAB)
+                    {
+                        for (unsigned char j = 0; j < MAX_GAME_USERS; j++)
+                        {
+                            if ((plrs[j].state == PLR_SKATE_WP 
+                            || plrs[j].state == PLR_SHOOT_MAX)
+                            && checkCollision(plrs[i].club_r, plrs[j].r))
+                            {
+                                printf(
+                                    "PLAYER: p: %d hit the puck off p: %d\n", 
+                                    plrs[i].id, plrs[j].id);
+
+                                // puck goes wild
+                                shootPuck(
+                                    &pt->puck, 1.5f, 
+                                    plrs[j].x - 4, plrs[j].y, 
+                                    plrs[i].AIM_angle);
+
+                                plrs[j].state = PLR_SKATE_NP;
+
+                                pt->PUCK_freeze = true;
+
+                                //Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
+                                break;
+                            }
+                        }
+                    }
+
+                    if ((++plrs[i].swing_timer) > 10)
+                    {
+                        plrs[i].swing_timer = 0;
+                        plrs[i].gvel = STANDARD_VELOCITY;
+                        plrs[i].state = PLR_SKATE_NP;
+                    }
+
+                    plrs[i].r.x = plrs[i].x - 10;
+                    plrs[i].r.y = plrs[i].y;
+                break;
+                case PLR_BLOCK:
+                    plrs[i].JOY_vel = 1;
+
+                    if ((plrs[i].gvel -= 0.05f) < 0) plrs[i].gvel = 0;
+
+                    if ((++plrs[i].block_timer) > 60)
+                    {
+                        plrs[i].block_timer = 0;
+                        plrs[i].bounce = false;
+                        plrs[i].gvel = STANDARD_VELOCITY;
+                        plrs[i].r.w = 20;
+                        plrs[i].r.h = 20;
+                        plrs[i].state = PLR_SKATE_NP;
+                    }
+
+                    switch (plrs[i].facing)
+                    {
+                        case FACING_DOWN:
+                            plrs[i].r.x = plrs[i].x - 8;
+                            plrs[i].r.y = plrs[i].y;
+                        break;
+                        case FACING_UP:
+                            plrs[i].r.x = plrs[i].x - 8;
+                            plrs[i].r.y = plrs[i].y - 10;
+                        break;
+                        case FACING_RIGHT:
+                            plrs[i].r.x = plrs[i].x - 10;
+                            plrs[i].r.y = plrs[i].y + 5;
+                        break;
+                        case FACING_LEFT:
+                            plrs[i].r.x = plrs[i].x - 20;
+                            plrs[i].r.y = plrs[i].y + 5;
+                        break;
+                    }
+                break;
+            }
+
+            if (plrs[i].state != PLR_BLOCK) 
+                updatePlayerInputs(&plrs[i]);
+
+            if (plrs[i].JOY_vel && plrs[i].state != PLR_SHOOT_MAX)
+            {
+                float   cos = (
+                    SDL_cos(plrs[i].INPUT_angle) * plrs[i].gvel),
+                        sin = (
+                    SDL_sin(plrs[i].INPUT_angle) * plrs[i].gvel);
+
+                addPlayerVel(&plrs[i].xvel, cos);
+                addPlayerVel(&plrs[i].yvel, sin);
+            }
+            else
+            {
+                if (plrs[i].state != PLR_SPRINT)
+                {
+                    subPlayerVel(&plrs[i].xvel);
+                    subPlayerVel(&plrs[i].yvel);
+                }
+            }
+
+            if (plrs[i].xvel) 
+                updatePlayerX(&plrs[i], pt->level);
+
+            if (plrs[i].yvel) 
+                updatePlayerY(&plrs[i], pt->level);
+
+            if (plrs[i].m_hold)
+            {
+                if (++plrs[i].swing_timer > 30)
+                {
+                    plrs[i].swing_timer = 31;
+                    plrs[i].state = PLR_SHOOT_MAX;
+                }
+            }
+
+            plrs[i].AIM_deg = (plrs[i].AIM_angle * 180) / AIM_PI;
+
+            if (plrs[i].AIM_deg < 0) plrs[i].AIM_deg += 360;
+
+            setPlayerFace(plrs[i].AIM_deg, &plrs[i].facing);
+
+            plrs[i].AIM_radx = 10 * SDL_cos(plrs[i].AIM_angle);
+            plrs[i].AIM_rady = 10 * SDL_sin(plrs[i].AIM_angle);
+
+            plrs[i].club_r.x = plrs[i].r.x + plrs[i].AIM_radx;
+            plrs[i].club_r.y = plrs[i].r.y + plrs[i].AIM_rady;
+
+            plrs[i].crosshair.r.x = plrs[i].club_r.x + 10 - pt->camera.x;
+            plrs[i].crosshair.r.y = plrs[i].club_r.y + 10 - pt->camera.y;
+
+            animatePlayer(&plrs[i]);
+        }
+    }
+
+    updatePuck(pt, pt->players);
+    updateGoalKeepers(pt, pt->players, pt->puck.state == P_STATE_GRAB ? 1 : 0);
+
+    pt->puck.r.x = pt->puck.x;
+    pt->puck.r.y = pt->puck.y;
+
+    pt->rx = pt->puck.x;
+    pt->ry = pt->puck.y;
+
+    /*
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
     {
         if (players[i].spawned)
         {
@@ -2252,6 +2664,93 @@ void updateGamePlay(P_TEST *pt, P players[])
 
         pt->rx = r->x;
         pt->ry = r->y;
+    }
+    */
+}
+
+void updateGamePlayNet(P_TEST *pt)
+{
+    if (pt->network.ok)
+    {
+        updateNetGame(pt, pt->players);
+
+        if (pt->network.join)
+        {
+            printf("NET: player join\n");
+            pt->network.join = false;
+            for (unsigned char i = 0; i < pt->network.numplayers; i++)
+            {
+                if (!pt->players[i].id)
+                {
+                    addPlayerGame(
+                        &pt->players[i], 
+                        pt->network.players_net[i].id, 
+                        pt->network.players_net[i].x, 
+                        pt->network.players_net[i].y);
+
+                    printf("PLAYER: joined player %d\n", pt->players[i].id);
+                }
+
+                if (pt->players[i].id == pt->network.localplayer->id)
+                    pt->c_player = &pt->players[i];
+            }
+        }
+
+        if (pt->network.left)
+        {
+            printf("NET: player left\n");
+            pt->network.left = false;
+            unsigned char n = 0;
+            for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+            {
+                for (unsigned char j = 0; j < pt->network.numplayers; j++)
+                {
+                    if (pt->players[i].id == pt->network.players_net[j].id) 
+                    {
+                        n = 1;
+                        break;
+                    }
+                    else if (!pt->players[i].id) 
+                    {
+                        n = 1; 
+                        break;
+                    }
+                }
+
+                if (!n)
+                {
+                    printf("PLAYER: found lost id:%d\n", pt->players[i].id);
+
+                    if (pt->network.puck.id == pt->players[i].id)
+                    {
+                        pt->puck.x = pt->players[i].x;
+                        pt->puck.y = pt->players[i].y;
+                        pt->network.puck.x = pt->players[i].x;
+                        pt->network.puck.y = pt->players[i].y;
+                        pt->network.puck.id = 0;
+                        pt->puck.state = P_STATE_NORMAL;
+                    }
+
+                    removePlayerGame(&pt->players[i]);
+                }
+
+                if (pt->players[i].id == pt->network.localplayer->id)
+                    pt->c_player = &pt->players[i];
+
+                n = 0;
+            }
+        }
+    }
+    
+    if (pt->network.lost)
+    {
+        // disconnect from net here
+        closeNet(&pt->network);
+        pt->is_net = false;
+        resetPlay(pt, pt->players, true);
+        // set local player to first
+        pt->c_player = &pt->players[0];
+        pt->c_player->spawned = true;
     }
 }
 
@@ -3616,7 +4115,6 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
             {
                 pt->STATE_timer = 0;
                 pt->state_change = false;
-                pt->network.client_data_interrupt = false;
                 pt->p_state = P_PLAY;
             }
             else 
@@ -3644,7 +4142,6 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
             if (++pt->SCORE_timer > 180)
             {
                 pt->SCORE_timer = 0;
-                pt->network.client_data_interrupt = true;
                 pt->p_state = P_DROP;
             }
         break;
@@ -4063,7 +4560,7 @@ void setupPlay(P_TEST *pt, P *player)
     pt->c_player->r.x = pt->c_player->x - pt->camera.x;
     pt->c_player->r.y = pt->c_player->y - pt->camera.y;
 
-    pt->g_state = G_PLAY;
+    pt->g_state = G_MAIN;
 }
 
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep)
@@ -4200,6 +4697,8 @@ void removePlayerGame(P *p)
 
 void resetPlay(P_TEST *pt, P plrs[], bool id)
 {
+    resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
+
     for (unsigned i = 0; i < MAX_GAME_USERS; i++)
     {
         resetPlayer(
@@ -4207,7 +4706,11 @@ void resetPlay(P_TEST *pt, P plrs[], bool id)
             pt->level.r.w >> 1, 
             pt->level.r.h >> 1);
 
-        if (id) pt->players[i].id = 0;
+        if (id)
+        {
+            pt->players[i].id = 0;
+            pt->players[i].spawned = false;
+        }
     }
 }
 
@@ -4242,7 +4745,6 @@ void resetPlayer(P *p, int sx, int sy)
     p->m_hold = false;
     p->m_move = false;
     p->bounce = false;
-    p->spawned = false;
     p->state_wait = false;
 
     p->sprint_timer = 0;

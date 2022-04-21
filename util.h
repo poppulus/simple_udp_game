@@ -79,10 +79,11 @@ enum GAME_STATE
 {
     G_MAIN,
     G_PLAY,
+    G_PLAY_NET,
     G_MENU,
     G_HOST,
-    G_HOSTING,
     G_JOIN,
+    G_HOSTING,
     G_JOINING
 };
 
@@ -339,8 +340,16 @@ void adjustGoalieY(float *gky, float ry, float vy);
 void updateBulletHits(B_HITS *hits, int bx, int by);
 
 void updateGame(P_TEST *pt, P players[]);
-void updateGameDrop(P_TEST *pt, P players[]);
+void updateGameMain(P_TEST *pt);
 void updateGamePlay(P_TEST *pt, P players[]);
+void updateGamePlayNet(P_TEST *pt);
+void updateGameMenu(P_TEST *pt);
+void updateGameHost(P_TEST *pt);
+void updateGameJoin(P_TEST *pt);
+void updateGameHosting(P_TEST *pt);
+void updateGameJoining(P_TEST *pt);
+
+void updateGameDrop(P_TEST *pt, P players[]);
 void updateGameGoal(P_TEST *pt, P players[]);
 
 void updatePlayer(P *p, P_TEST *pt);
@@ -367,16 +376,29 @@ void updateNetHostGame(P_TEST *pt, P plrs[]);
 void updateNetClientGame(P_TEST *pt, P plrs[]);
 
 void inputsGame(P_TEST *pt, SDL_Event ev);
-void inputsJoin(P_TEST *pt, SDL_Event ev);
-void inputsHost(P_TEST *pt, SDL_Event ev);
+void inputsGamePlay(P_TEST *pt, SDL_Event ev);
+void inputsGamePlayNet(P_TEST *pt, SDL_Event ev);
+void inputsGameHostingJoining(P_TEST *pt, SDL_Event ev);
+void inputsGameJoin(P_TEST *pt, SDL_Event ev);
+void inputsGameHost(P_TEST *pt, SDL_Event ev);
+void inputsGameMain(P_TEST *pt, SDL_Event ev);
+void inputsGameMenu(P_TEST *pt, SDL_Event ev);
+void inputsGameNet(P_TEST *pt, SDL_Event ev);
 
-void inputsNetGame(P_TEST *pt, SDL_Event ev);
+void startLocalGame(P_TEST *pt);
 
 bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
 
 void shootPuck(Puck *puck, float vel, float x, float y, float angle);
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[]);
+void renderGameMain(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGameHosting(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGameJoining(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+
 void renderClientGame(SDL_Renderer *r, SDL_Rect cam, P players[]);
 
 void renderTiles(SDL_Renderer *r, P_TEST *pt);
