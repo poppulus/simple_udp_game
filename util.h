@@ -78,6 +78,7 @@ enum PLAY_STATE
 enum GAME_STATE 
 {
     G_MAIN,
+    G_LOADING,
     G_PLAY,
     G_PLAY_NET,
     G_MENU,
@@ -261,7 +262,7 @@ typedef struct Play_Test
 
     char channel_volume;
 
-    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1, state_change:1;
+    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1, state_change:1, playing:1;
     
     char TEXT_gun_speed[2];
 
@@ -339,8 +340,11 @@ void adjustGoalieY(float *gky, float ry, float vy);
 
 void updateBulletHits(B_HITS *hits, int bx, int by);
 
+void updateCamera(SDL_Rect *camera, SDL_Rect level, int rx);
+
 void updateGame(P_TEST *pt, P players[]);
 void updateGameMain(P_TEST *pt);
+void updateGameLoading(P_TEST *pt);
 void updateGamePlay(P_TEST *pt, P players[]);
 void updateGamePlayNet(P_TEST *pt);
 void updateGameMenu(P_TEST *pt);
@@ -383,6 +387,7 @@ void inputsGameJoin(P_TEST *pt, SDL_Event ev);
 void inputsGameHost(P_TEST *pt, SDL_Event ev);
 void inputsGameMain(P_TEST *pt, SDL_Event ev);
 void inputsGameMenu(P_TEST *pt, SDL_Event ev);
+void inputsGameLoading(P_TEST *pt, SDL_Event ev);
 void inputsGameNet(P_TEST *pt, SDL_Event ev);
 
 void startLocalGame(P_TEST *pt);
@@ -393,6 +398,7 @@ void shootPuck(Puck *puck, float vel, float x, float y, float angle);
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[]);
 void renderGameMain(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
+void renderGameLoading(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt);

@@ -7,7 +7,10 @@
 
 #define HOST_ID 1
 
-#define MAX_NET_USERS 2
+#define NET_IS_HOST 1
+#define NET_IS_CLIENT 2
+
+#define MAX_NET_USERS 4
 #define NET_BUFFER_PRESET 11
 #define NET_BUFFER_SIZE 64
 #define NET_BUFFER_PLAYER 12
@@ -112,7 +115,7 @@ typedef struct NETWORKING
     P_NET *localplayer;
     GK_NET goalkeepers;
     PUCK_NET puck;
-    unsigned char numusers, numplayers, play_state;
+    unsigned char numusers, numplayers, play_state, type;
     int lost:1, tquit:1, join:1, left:1, ok:1;
 } NET;
 
@@ -135,6 +138,7 @@ void removeUser(UDPuser *user);
 void addPlayerNet(P_NET *p, int id, int grab);
 void removePlayerNet(P_NET *p);
 
+void resetNet(NET *net);
 void resetUser(UDPuser *u);
 
 void setupClientConnect(UDPpacket *p, IPaddress ip);
