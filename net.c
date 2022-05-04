@@ -49,6 +49,8 @@ void closeNet(NET *net)
         net->players_net = NULL;
     }
 
+    resetNetScores(&net->score);
+
     net->puck.id = 0;
     net->puck.x = 0;
     net->puck.y = 0;
@@ -162,6 +164,9 @@ void initNet(NET *net)
     net->localuser.address.port = 0;
     net->localuser.status = 0;
     net->localuser.timeout = 0;
+
+    net->score.score1 = 0;
+    net->score.score2 = 0;
 
     net->puck.id = 0;
     net->puck.x = 0;
@@ -514,6 +519,12 @@ void resetUser(UDPuser *u)
     u->id = 0;
 }
 
+void resetNetScores(SCORE_NET *scores)
+{
+    scores->score1 = 0;
+    scores->score2 = 0;
+}
+
 int client_thread(void *ptr)
 {
     NET *net = ptr;
@@ -571,7 +582,6 @@ int client_thread(void *ptr)
                         //    net->connection.pks[HOST_PACKET]->address, 
                         //    net->localuser.id, net->localplayer);
 
-                        net->ok = 1;
                         printf("NET: client ok\n");
                     }
                     else if (net->localuser.status == N_PLAY)
@@ -582,6 +592,9 @@ int client_thread(void *ptr)
                         pkg_len = (net->connection.pks[HOST_PACKET]->len - NET_BUFFER_PRESET);
 
                         net->play_state = net->connection.pks[HOST_PACKET]->data[NET_HOST_STATE];
+
+                        net->score.score1 = net->connection.pks[HOST_PACKET]->data[NET_HOST_SCORE1];
+                        net->score.score2 = net->connection.pks[HOST_PACKET]->data[NET_HOST_SCORE2];
 
                         net->goalkeepers.gk1_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK1];
                         net->goalkeepers.gk2_status = net->connection.pks[HOST_PACKET]->data[NET_HOST_GK2];
@@ -627,9 +640,11 @@ int client_thread(void *ptr)
                             }
 
                             if (net->localplayer)
+                            {
                                 printf("PLAYER: local id: %d\n", net->localplayer->id);
-                            else 
-                                printf("PLAYER: could not set local player!\n");
+                                net->ok = 1;
+                            }
+                            else printf("PLAYER: could not set local player!\n");
                         }
 
                         for (unsigned char i = 0; i < MAX_NET_USERS; i++)
@@ -1105,6 +1120,7 @@ void hostSendPlay(UDPpacket *p, IPaddress ip, NET net)
     p->data[NET_HOST_NUSERS] = net.numplayers;
     p->data[NET_HOST_STATE] = net.play_state;
     
+    memcpy((unsigned char *)&p->data[NET_HOST_SCORE1], &net.score.score1, 2);
     memcpy((unsigned char *)&p->data[NET_HOST_GK1], &net.goalkeepers.gk1_status, 2);
 
     p->data[NET_HOST_PUCKID] = net.puck.id;

@@ -180,6 +180,14 @@ typedef struct BULLET_HITS
     unsigned char index;
 } B_HITS;
 
+typedef struct PLAY_SCORE
+{
+    unsigned char score1;
+    char score1_string[3];
+    unsigned char score2;
+    char score2_string[3];
+} P_SCORE;
+
 typedef struct PLAY_GOALIE
 {
     SDL_Rect r;
@@ -242,6 +250,7 @@ typedef struct Play_Test
     T *gunTexture, texture;
     SDL_GameController *controller;
     L level;
+    P_SCORE score;
     Puck puck;
     P_G *goalie;
     P *c_player, *players; 
@@ -332,6 +341,7 @@ void resetPlay(P_TEST *pt, P plrs[], bool id);
 void resetPlayer(P *player, int sx, int sy);
 void resetPuck(Puck *p, int mx, int my);
 void resetInputField(I_FIELD *input);
+void resetScores(P_SCORE *scores);
 
 void movePlayer(P *player, SDL_Rect camera);
 

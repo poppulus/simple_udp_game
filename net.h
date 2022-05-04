@@ -11,7 +11,7 @@
 #define NET_IS_CLIENT 2
 
 #define MAX_NET_USERS 4
-#define NET_BUFFER_PRESET 11
+#define NET_BUFFER_PRESET 13
 #define NET_BUFFER_SIZE 64
 #define NET_BUFFER_PLAYER 12
 
@@ -32,13 +32,15 @@ enum NET_HOST_DATA
     NET_HOST_ID,
     NET_HOST_NUSERS,
     NET_HOST_STATE,
+    NET_HOST_SCORE1,
+    NET_HOST_SCORE2,
     NET_HOST_GK1,
     NET_HOST_GK2,
     NET_HOST_PUCKID,
     NET_HOST_PUCKDATA,
-    NET_HOST_USERANGLE = 11,
-    NET_HOST_USERPOS = 15,
-    NET_HOST_USERID = 19,
+    NET_HOST_USERANGLE = 13,
+    NET_HOST_USERPOS = 17,
+    NET_HOST_USERID = 21,
     NET_HOST_USERSTATUS
 };
 
@@ -65,6 +67,11 @@ enum P_NET_STATE
     PNET_GRAB,
     PNET_SHOOT
 };
+
+typedef struct Score_Net
+{
+    unsigned char score1, score2;
+} SCORE_NET;
 
 typedef struct GK_Net
 {
@@ -111,6 +118,7 @@ typedef struct NETWORKING
     UDPconnection connection;
     UDPuser *users;
     UDPuser localuser;
+    SCORE_NET score;
     P_NET *players_net;
     P_NET *localplayer;
     GK_NET goalkeepers;
@@ -140,6 +148,7 @@ void removePlayerNet(P_NET *p);
 
 void resetNet(NET *net);
 void resetUser(UDPuser *u);
+void resetNetScores(SCORE_NET *scores);
 
 void setupClientConnect(UDPpacket *p, IPaddress ip);
 void setupClientNewId(UDPpacket *p, char id, IPaddress ip);

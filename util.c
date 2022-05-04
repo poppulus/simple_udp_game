@@ -984,10 +984,24 @@ void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
     {
         FC_DrawColor(
             f, r, 
-            320, 20, 
+            320 - 56, 20, 
             FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
             "SCORE!");
     }
+
+    // draw scores
+
+    FC_DrawColor(
+        f, r, 
+        (W_WIDTH >> 1) - 128, 20, 
+        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+        pt->score.score1_string);
+
+    FC_DrawColor(
+        f, r, 
+        (W_WIDTH >> 1) + 112, 20, 
+        FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+        pt->score.score2_string);
 }
 void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 {
@@ -1926,26 +1940,7 @@ void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
                         case SDLK_RSHIFT:
                             if (pt->c_player->state == PLR_SKATE_NP && pt->c_player->JOY_vel)
                             {
-                                pt->c_player->gvel += STANDARD_VELOCITY * 0.5f;
-                                switch (pt->c_player->facing)
-                                {
-                                    case FACING_DOWN:
-                                        pt->c_player->r.w = 16;
-                                        pt->c_player->r.h = 30;
-                                    break;
-                                    case FACING_UP:
-                                        pt->c_player->r.w = 16;
-                                        pt->c_player->r.h = 30;
-                                    break;
-                                    case FACING_RIGHT:
-                                        pt->c_player->r.w = 30;
-                                        pt->c_player->r.h = 16;
-                                    break;
-                                    case FACING_LEFT:
-                                        pt->c_player->r.w = 30;
-                                        pt->c_player->r.h = 16;
-                                    break;
-                                }
+                                pt->c_player->gvel += STANDARD_VELOCITY * 0.375f;
                                 pt->c_player->state = PLR_BLOCK;
                             }
                         break;
@@ -2774,10 +2769,15 @@ void updateGamePlayNet(P_TEST *pt)
         closeNet(&pt->network);
         pt->is_net = false;
         resetPlay(pt, pt->players, true);
+        resetScores(&pt->score);
         // set local player to first
         pt->c_player = &pt->players[0];
         pt->c_player->spawned = true;
     }
+
+    // convert scores to string
+    n_itoa(pt->score.score1, pt->score.score1_string);
+    n_itoa(pt->score.score2, pt->score.score2_string);
 
     updateCamera(&pt->camera, pt->level.r, pt->rx);
 }
@@ -4065,15 +4065,6 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 
     for (; i < MAX_GAME_USERS; i++)
     {
-        /*
-        if (!plrs[i].id && pt->network.players_net[i].id)
-        {
-            plrs[i].id = pt->network.players_net[i].id;
-            plrs[i].spawned = true;
-            printf("PLAYER: id %d joined\n", plrs[i].id);
-        }
-        */
-
         if (plrs[i].spawned)
         {
             if (plrs[i].id == pt->network.players_net[i].id)
@@ -4152,6 +4143,8 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
             {
                 if (checkGoal(pt->puck.r, pt->goal_r[i]))
                 {
+                    if (i == 0) pt->score.score1++;
+                    else if (i == 1) pt->score.score2++;
                     pt->p_state = P_GOAL;
                 }
             }
@@ -4245,10 +4238,15 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                             pt->network.puck.id = plrs[i].id;
                         }
                     }
+
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
                 break;
                 case PLR_SKATE_WP:
                     pt->puck.x = plrs[i].x;
                     pt->puck.y = plrs[i].y;
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
                 break;
                 case PLR_SHOOT:
                     if (pt->puck.state == P_STATE_GRAB)
@@ -4273,12 +4271,18 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 
                         //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
                     }
+
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
                 break;
                 case PLR_SHOOT_MAX: // make sure player has the highest shoot velocity
                     plrs[i].pvel = MAX_SHOOT_VELOCITY;
 
                     if (++plrs[i].state_timer > 7) 
                         plrs[i].state_timer = 0;
+
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
                 break;
                 case PLR_SWING:
                     if (pt->puck.state == P_STATE_GRAB)
@@ -4319,8 +4323,39 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                             pt->c_player->state = PLR_SKATE_NP;
                         }
                     }
+
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
                 break;
                 case PLR_BLOCK:
+                    if (checkCollision(plrs[i].r, pt->puck.r))
+                    {
+                        pt->puck.xvel = -pt->puck.xvel;
+                        pt->puck.yvel = -pt->puck.yvel;
+                        pt->puck.fvelx += 0.1f;
+                        pt->puck.fvely += 0.1f;
+                    }
+
+                    switch (plrs[i].facing)
+                    {
+                        case FACING_DOWN:
+                            plrs[i].r.w = 16;
+                            plrs[i].r.h = 30;
+                        break;
+                        case FACING_UP:
+                            plrs[i].r.w = 16;
+                            plrs[i].r.h = 30;
+                        break;
+                        case FACING_RIGHT:
+                            plrs[i].r.w = 30;
+                            plrs[i].r.h = 16;
+                        break;
+                        case FACING_LEFT:
+                            plrs[i].r.w = 30;
+                            plrs[i].r.h = 16;
+                        break;
+                    }
+
                     if (plrs[i].id == HOST_ID)
                     {
                         plrs[i].JOY_vel = 1;
@@ -4358,6 +4393,9 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 
     pt->network.play_state = pt->p_state;
 
+    pt->network.score.score1 = pt->score.score1;
+    pt->network.score.score2 = pt->score.score2;
+
     pt->network.goalkeepers.gk1_status = pt->goalie[0].state;
     pt->network.goalkeepers.gk2_status = pt->goalie[1].state;
 
@@ -4368,6 +4406,9 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
 void updateNetClientGame(P_TEST *pt, P plrs[])
 {
     pt->p_state = pt->network.play_state;
+
+    pt->score.score1 = pt->network.score.score1;
+    pt->score.score2 = pt->network.score.score2;
     
     pt->goalie[0].state = pt->network.goalkeepers.gk1_status;
     pt->goalie[1].state = pt->network.goalkeepers.gk2_status;
@@ -4423,7 +4464,7 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
             pt->c_player->state = PLR_SHOOT_MAX;
         }
     }
-    
+
     switch (pt->c_player->state)
     {
         default: break;
@@ -4469,11 +4510,44 @@ void updateNetClientGame(P_TEST *pt, P plrs[])
                 pt->c_player->block_timer = 0;
                 pt->c_player->bounce = false;
                 pt->c_player->gvel = STANDARD_VELOCITY;
-                pt->c_player->r.w = 20;
-                pt->c_player->r.h = 20;
                 pt->c_player->state = PLR_SKATE_NP;
             }
         break;
+    }
+
+    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].spawned)
+        {
+            switch (plrs[i].state)
+            {
+                default: 
+                    plrs[i].r.w = 20;
+                    plrs[i].r.h = 20;
+                break;
+                case PLR_BLOCK:
+                    switch (plrs[i].facing)
+                    {
+                        case FACING_DOWN:
+                            plrs[i].r.w = 16;
+                            plrs[i].r.h = 30;
+                        break;
+                        case FACING_UP:
+                            plrs[i].r.w = 16;
+                            plrs[i].r.h = 30;
+                        break;
+                        case FACING_RIGHT:
+                            plrs[i].r.w = 30;
+                            plrs[i].r.h = 16;
+                        break;
+                        case FACING_LEFT:
+                            plrs[i].r.w = 30;
+                            plrs[i].r.h = 16;
+                        break;
+                    }
+                break;
+            }
+        }
     }
 }
 
@@ -4601,6 +4675,11 @@ void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep)
         play_test.bullet_hits.a[i].y = 0;
     }
     */
+
+    pt->score.score1 = 0;
+    pt->score.score2 = 0;
+    //pt->score.score1_string;
+    //pt->score.score2_string;
 
     pt->goal_r = gr;
     pt->gk_r = gkr;
@@ -4792,6 +4871,12 @@ void resetInputField(I_FIELD *input)
 
     input->str_len = 0;
     input->str_pointer = 0;
+}
+
+void resetScores(P_SCORE *scores)
+{
+    scores->score1 = 0;
+    scores->score2 = 0;
 }
 
 void movePlayer(P *p, SDL_Rect camera)
