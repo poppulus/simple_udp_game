@@ -49,29 +49,16 @@ int main(int argc, const char *argv[])
                     int delta;
 
                     play_test.mix_chunks = audio_chunks;
-                    play_test.gunTexture = NULL;
-                    play_test.controller = NULL;
+                    play_test.controllers[0] = NULL;
+                    play_test.controllers[1] = NULL;
+                    play_test.controllers[2] = NULL;
+                    play_test.controllers[3] = NULL;
 
                     play_test.channel_volume = 32;
 
                     Mix_Volume(-1, 32);
 
-                    for (int i = 0; i < SDL_NumJoysticks(); i++) 
-                    {
-                        if (SDL_IsGameController(i)) 
-                        {
-                            play_test.controller = SDL_GameControllerOpen(i);
-                            if (play_test.controller) 
-                            {
-                                printf("Controller %d connected!\n", i);
-                                break;
-                            }
-                            else fprintf(
-                                stderr, 
-                                "Could not open gamecontroller %i: %s\n", 
-                                i, SDL_GetError());
-                        }
-                    }
+                    checkControllers(play_test.controllers);
 
                     printf("loading map ...\n");
 

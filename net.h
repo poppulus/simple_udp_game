@@ -128,12 +128,12 @@ typedef struct NETWORKING
 } NET;
 
 void closeNet(NET *net);
-int startNetHost(NET *net, int port);
+int startNetHost(NET *net);
 int startNetClient(NET *net, const char *string);
 
 void initNet(NET *net);
-int initNetHost(UDPsocket *sd, UDPpacket **pks, unsigned short port);
-int initNetClient(NET *net, const char *string);
+int initNetHost(UDPsocket *sd, UDPpacket **pks);
+int initNetClient(NET *net, const char host[]);
 
 int host_thread(void *ptr);
 int client_thread(void *ptr);

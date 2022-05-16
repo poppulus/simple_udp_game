@@ -31,6 +31,7 @@
 #define MAX_SHOOT_VELOCITY 5
 
 #define JOYSTICK_DEADZONE 8000
+#define JOY_ID_NULL -1
 
 #define AIM_RADIUS 50
 
@@ -85,7 +86,8 @@ enum GAME_STATE
     G_HOST,
     G_JOIN,
     G_HOSTING,
-    G_JOINING
+    G_JOINING,
+    G_CONFIRM
 };
 
 enum PUCK_STATE
@@ -161,25 +163,6 @@ typedef struct CROSSHAIR
     bool show:1;
 } X_HAIR;
 
-typedef struct BULLET
-{
-    SDL_Rect r;
-    float x, y, xvel, yvel;
-    bool shoot;
-} BUL;
-
-typedef struct BULLET_HIT
-{
-    int x, y;
-    bool used;
-} B_HIT;
-
-typedef struct BULLET_HITS
-{
-    B_HIT a[30];
-    unsigned char index;
-} B_HITS;
-
 typedef struct PLAY_SCORE
 {
     unsigned char score1;
@@ -194,7 +177,6 @@ typedef struct PLAY_GOALIE
     enum GOALIE_STATE state;
     float x, y;
     unsigned char s_timer, id;
-    bool swing:1, shoot:1, grab:1;
 } P_G;
 
 typedef struct Player
@@ -205,7 +187,7 @@ typedef struct Player
     enum PLAYER_STATE state;
     enum PLAYER_FACING facing;
 
-    int     id, mx, my;
+    int     id, ctrl_id, mx, my;
 
     short   sprint_cdown_timer;
 
@@ -227,8 +209,6 @@ typedef struct Player
                    a_counter, a_index, c_index,
                    sprint_timer, swing_timer, block_timer,
                    state_timer, AIM_timer;
-
-    BUL bullets[10];
 } P;
 
 typedef struct Puck
@@ -247,8 +227,8 @@ typedef struct INPUT_FIELD
 typedef struct Play_Test
 {
     Mix_Chunk **mix_chunks;
-    T *gunTexture, texture;
-    SDL_GameController *controller;
+    T texture;
+    SDL_GameController *controllers[4];
     L level;
     P_SCORE score;
     Puck puck;
@@ -257,32 +237,23 @@ typedef struct Play_Test
     I_FIELD input_field;
     NET network;
 
-    SDL_Rect screen, camera, sprint_hud_r,
-            gunClips[25], *goal_r, *t_clips, *gk_r, *buttons, *plr_hud;
+    SDL_Rect screen, camera, sprint_hud_r, 
+            *goal_r, *t_clips, *gk_r, *buttons, *plr_hud;
 
     enum PLAY_STATE p_state;
     enum GAME_STATE g_state;
 
     int rx, ry;
 
-    unsigned char   GUN_delay, GUN_speed, SCORE_timer,
-                    PUCK_freeze_timer, STATE_timer,
+    char state_timer_string[2];
+
+    unsigned char   JOY_select, SCORE_timer, PUCK_freeze_timer, STATE_timer, STATE_cntdwn,
                     t_n_size, t_bit_size, *m_buffer, f_buffer[MAP_START];
 
     char channel_volume;
 
-    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1, state_change:1, playing:1;
-    
-    char TEXT_gun_speed[2];
+    bool PUCK_freeze:1, quit:1, w_focus:1, is_net:1, state_change:1, playing:1, menu_hold:1;
 
-    B_HITS bullet_hits;
-
-    char TEXT_gun_delay[2]; 
-
-    // make sure strings are separated with this byte/bit
-    bool volume:1;
-    
-    char TEXT_channel_volume[3];
 } P_TEST;
 
 float lerp(float v0, float v1, float t);
@@ -291,13 +262,17 @@ void reverse(char s[]);
 void n_itoa(int n, char s[]);
 
 bool checkCollision(SDL_Rect a, SDL_Rect b);
-int checkGoalieCollision(SDL_Rect gk, SDL_Rect puck);
 bool checkMousePosition(int x, int y, SDL_Rect r);
 bool checkPlayerPosition(int x, int y, unsigned char map[], int msize);
 bool checkGoal(SDL_Rect puck, SDL_Rect goal);
 bool checkPuckCollision(float x, float y, SDL_Rect box);
 
+bool checkIpString(const char string[]);
+
 void checkPuckXDistance(float x1, float x2, float *f);
+
+void checkControllers(SDL_GameController *controllers[]);
+void removeController(SDL_GameController *controllers[], int id, P plrs[]);
 
 SDL_Texture *loadTexture(SDL_Renderer *r, const char path[]);
 
@@ -342,13 +317,10 @@ void resetPlayer(P *player, int sx, int sy);
 void resetPuck(Puck *p, int mx, int my);
 void resetInputField(I_FIELD *input);
 void resetScores(P_SCORE *scores);
-
-void movePlayer(P *player, SDL_Rect camera);
+void resetGoalkeeper(P_G *g, int x);
 
 void adjustGoalieX(float *gkx, float rx, float vx);
 void adjustGoalieY(float *gky, float ry, float vy);
-
-void updateBulletHits(B_HITS *hits, int bx, int by);
 
 void updateCamera(SDL_Rect *camera, SDL_Rect level, int rx);
 
@@ -363,13 +335,12 @@ void updateGameJoin(P_TEST *pt);
 void updateGameHosting(P_TEST *pt);
 void updateGameJoining(P_TEST *pt);
 
-void updateGameDrop(P_TEST *pt, P players[]);
-void updateGameGoal(P_TEST *pt, P players[]);
-
-void updatePlayer(P *p, P_TEST *pt);
 void updatePlayerInputs(P *p);
 void updatePlayerX(P *p, L level);
 void updatePlayerY(P *p, L level);
+
+void updateKeyInputs(P *p);
+void updateJoyInputs(P *p);
 
 void addPlayerVel(float *vel, float wave);
 void subPlayerVel(float *vel);
@@ -379,10 +350,6 @@ void updatePuck(P_TEST *pt, P players[]);
 void updateGoalKeeperX(float *x, const int CHECKX);
 void updateGoalKeepers(P_TEST *pt, P players[], bool grab);
 
-void updateLocalGame(P_TEST *pt, P players[]);
-void updateHostGame(P_TEST *pt, P plrs[]);
-void updateClientGame(P_TEST *pt, P plrs[]);
-
 void updateNetGame(P_TEST *pt, P plrs[]);
 void updateNetPlayers(P_TEST *pt, P plrs[]);
 
@@ -391,18 +358,17 @@ void updateNetClientGame(P_TEST *pt, P plrs[]);
 
 void inputsGame(P_TEST *pt, SDL_Event ev);
 void inputsGamePlay(P_TEST *pt, SDL_Event ev);
-void inputsGamePlayNet(P_TEST *pt, SDL_Event ev);
 void inputsGameHostingJoining(P_TEST *pt, SDL_Event ev);
 void inputsGameJoin(P_TEST *pt, SDL_Event ev);
 void inputsGameHost(P_TEST *pt, SDL_Event ev);
 void inputsGameMain(P_TEST *pt, SDL_Event ev);
 void inputsGameMenu(P_TEST *pt, SDL_Event ev);
 void inputsGameLoading(P_TEST *pt, SDL_Event ev);
-void inputsGameNet(P_TEST *pt, SDL_Event ev);
+void inputsGameConfirm(P_TEST *pt, SDL_Event ev);
+
+void inputsGameJoyAxis(P *p, SDL_Event ev);
 
 void startLocalGame(P_TEST *pt);
-
-bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy);
 
 void shootPuck(Puck *puck, float vel, float x, float y, float angle);
 
@@ -412,15 +378,16 @@ void renderGameLoading(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
 void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
-void renderGameHosting(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
-void renderGameJoining(SDL_Renderer *r, FC_Font *f, P_TEST *pt);
-
-void renderClientGame(SDL_Renderer *r, SDL_Rect cam, P players[]);
+void renderGameHosting(SDL_Renderer *r, FC_Font *f, SDL_Rect btn);
+void renderGameJoining(SDL_Renderer *r, FC_Font *f, SDL_Rect btn);
+void renderGameConfirm(SDL_Renderer *r, FC_Font *f, SDL_Rect *btn, unsigned char select);
 
 void renderTiles(SDL_Renderer *r, P_TEST *pt);
 void renderTexture(SDL_Renderer *r, T *t, SDL_Rect *clip, int x, int y, const double angle, const SDL_RendererFlip flip);
 void renderPlayer(SDL_Renderer *r, SDL_Texture *t, P *p, int cx, int cy);
 void renderPlayTiles(SDL_Renderer *r, P_TEST pt);
+
+void renderMenuButton(SDL_Renderer *r, SDL_Rect btns[], bool select);
 
 void animatePlayer(P *p);
 

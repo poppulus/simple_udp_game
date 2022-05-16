@@ -75,11 +75,11 @@ void closeNet(NET *net)
     SDLNet_Quit();
 }
 
-int startNetHost(NET *net, int port)
+int startNetHost(NET *net)
 {
     int success = 1;
 
-    if (initNetHost(&net->connection.sd, net->connection.pks, port))
+    if (initNetHost(&net->connection.sd, net->connection.pks))
     {
         printf("NET: host connection established\n");
 
@@ -94,9 +94,6 @@ int startNetHost(NET *net, int port)
         if ((net->thread = SDL_CreateThread(host_thread, "host", net)) == NULL)
         {
             printf("ERROR: SDL_CreateThread, %s\n", SDL_GetError());
-            net->tquit = 1;
-            net->lost = 1;
-            closeNet(net);
             success = 0;
         }
         else printf("NET: host thread starting\n");
@@ -131,7 +128,6 @@ int startNetClient(NET *net, const char *string)
         if ((net->thread = SDL_CreateThread(client_thread, "client", net)) == NULL)
         {
             printf("ERROR: SDL_CreateThread, %s\n", SDL_GetError());
-            closeNet(net);
             success = 0;
         }
         else printf("NET: client thread starting\n");
@@ -180,7 +176,7 @@ void initNet(NET *net)
     net->connection.pks[PEER_PACKET] = NULL;
 }
 
-int initNetHost(UDPsocket *sd, UDPpacket **pks, unsigned short port)
+int initNetHost(UDPsocket *sd, UDPpacket **pks)
 {
     if (SDLNet_Init() < 0)
 	{
@@ -188,13 +184,13 @@ int initNetHost(UDPsocket *sd, UDPpacket **pks, unsigned short port)
 		return 0;
 	}	
 
-	if (!(*sd = SDLNet_UDP_Open(port)))
+	if (!(*sd = SDLNet_UDP_Open(1337)))
 	{
 		fprintf(stderr, "SDLNet_UDP_Open: %s\n", SDLNet_GetError());
 		return 0;
 	}
 
-    printf("NET: UDP port %d\n", port);
+    printf("NET: UDP port 1337\n");
 
     if (!(pks[HOST_PACKET] = SDLNet_AllocPacket(NET_BUFFER_SIZE))) 
     { 
@@ -211,12 +207,8 @@ int initNetHost(UDPsocket *sd, UDPpacket **pks, unsigned short port)
     return 1;
 }
 
-int initNetClient(NET *net, const char *string)
+int initNetClient(NET *net, const char *host)
 {
-    char *host = NULL;
-    Uint16 port = 0;
-    int len = 0;
-
     printf("NET: init\n");
     
     if (SDLNet_Init() < 0)
@@ -233,12 +225,19 @@ int initNetClient(NET *net, const char *string)
 		return 0;
 	}
 
-    len = strlen(string);
-
-    unsigned char n = 0;
+    /*
+    unsigned char n = 0, m = 0;
 
     for (unsigned char i = len - 1; i > 0; i--)
     {
+        if (string[i] == '.') n++;
+        
+        if (n == 3)
+        {
+            m++;
+            if (m > 3) break;
+        }
+
         if (string[i] == ':' && (i + 1) < 64)
         {
             n = 1;
@@ -251,22 +250,20 @@ int initNetClient(NET *net, const char *string)
 
     if (!n)
     {
-        printf("NET: incorrect IP, example: %s\n", "123.123.123.123:9999");
+        printf("NET: incorrect IP, example: %s\n", "123.123.123.123");
     }
+    */
 
-    printf("host %s, port %d\n", host, port);
+    printf("host %s, port 1337\n", host);
     
-    if (SDLNet_ResolveHost(&net->connection.hostaddr, host, port))
+    if (SDLNet_ResolveHost(&net->connection.hostaddr, host, 1337))
     { 
         fprintf(
             stderr, 
             "SDLNet_ResolveHost(%d %d): %s\n", 
             net->connection.hostaddr.host, net->connection.hostaddr.port, SDLNet_GetError()); 
-        if (host != NULL) free(host);
         return 0;
     }
-
-    if (host != NULL) free(host);
 
     printf("NET: allocate packets\n");
 

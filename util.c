@@ -92,32 +92,6 @@ bool checkCollision(SDL_Rect a, SDL_Rect b)
     return true;
 }
 
-int checkGoalieCollision(SDL_Rect gk, SDL_Rect puck)
-{
-    // top 
-    if ((puck.y >= gk.y 
-    && puck.y < gk.y + (gk.h >> 1)) 
-    && (puck.x >= gk.x 
-    && puck.x <= gk.x + gk.w)) return 1;
-    // bottom
-    if ((puck.y <= gk.y + gk.h 
-    && puck.y > gk.y + (gk.h >> 1)) 
-    && (puck.x >= gk.x 
-    && puck.x <= gk.x + gk.w)) return 2;
-    // left - still jank
-    if ((puck.x >= gk.x
-    && puck.x < gk.x + (gk.w >> 1)) 
-    && (puck.y >= gk.y 
-    && puck.y <= gk.y + gk.h)) return 3;
-    // right - still jank
-    if ((puck.x <= gk.x + gk.w 
-    && puck.x > gk.x + (gk.w >> 1)) 
-    && (puck.y >= gk.y 
-    && puck.y <= gk.y + gk.h)) return 4;
-    
-    return 0;
-}
-
 bool checkMousePosition(int x, int y, SDL_Rect r)
 {
     if ((x > r.x && x < r.x + r.w) 
@@ -160,6 +134,72 @@ void checkPuckXDistance(float x1, float x2, float *f)
     if (x1 - x2 < 100) *f = 1.5f;
     else if (x1 - x2 < 150) *f = 1.25f;
     else if (x1 - x2 < 200)  *f = 1.125f;
+}
+
+bool checkIpString(const char string[])
+{
+    unsigned char n = 0, m = 0;
+    size_t len = strlen(string);
+
+    for (unsigned char i = 0; i < len; i++)
+    {
+        if (string[i] == '.') n++;
+        
+        if (n == 3)
+        {
+            m++;
+            if (m > 3) break;
+        }
+        else if (n > 3) break;
+    }
+
+    if (n != 3 || (m > 3 || !m))
+    {
+        printf("NET: incorrect IP, example: %s\n", "123.123.123.123");
+        return false;
+    }
+
+    return true;
+}
+
+void checkControllers(SDL_GameController *controllers[])
+{
+    for (int i = 0; i < SDL_NumJoysticks(); i++) 
+    {
+        if (i < 4)
+        {
+            if (SDL_IsGameController(i)) 
+            {
+                controllers[i] = SDL_GameControllerOpen(i);
+                if (controllers[i]) 
+                {
+                    printf("Controller %d connected!\n", i);
+                    break;
+                }
+                else fprintf(
+                    stderr, 
+                    "Could not open gamecontroller %i: %s\n", 
+                    i, SDL_GetError());
+            }
+        }
+        else break;
+    }
+}
+
+void removeController(SDL_GameController *controllers[], int id, P plrs[])
+{
+    if (id < 4) controllers[id] = NULL;
+
+    for (unsigned char i = 1; i < MAX_GAME_USERS; i++)
+    {
+        if (plrs[i].ctrl_id == id)
+        {
+            resetPlayer(&plrs[i], 0, 0);
+            plrs[i].id = 0;
+            plrs[i].ctrl_id = JOY_ID_NULL;
+            plrs[i].spawned = false;
+        }
+    }
 }
 
 void freeTexture(T *text)
@@ -486,15 +526,13 @@ void freePlayTest(P_TEST *ptest)
 
     printf("free texture map\n");
 
-    if (ptest->gunTexture != NULL)
-        freeTexture(ptest->gunTexture);
+    for (unsigned char i = 0; i < 4; i++)
+    {
+        SDL_GameControllerClose(ptest->controllers[i]);
+        ptest->controllers[i] = NULL;
+    }
 
-    printf("free gun texture\n");
-
-    SDL_GameControllerClose(ptest->controller);
-    ptest->controller = NULL;
-
-    printf("free controller\n");
+    printf("free controllers\n");
 }
 
 void initLevel(P_TEST *pt)
@@ -555,6 +593,7 @@ void initPlayer(P *p, L level, unsigned char buffer[])
     }
 
     p->id = 0;
+    p->ctrl_id = JOY_ID_NULL;
     p->state = PLR_SKATE_NP;
 
     p->AIM_angle = 0;
@@ -690,9 +729,6 @@ void initGoalkeeper(P_G *g)
     g->r.w = 20;
     g->r.h = 20;
     g->s_timer = 0;
-    g->grab = false;
-    g->shoot = false;
-    g->swing = false;
     g->state = GK_NORMAL;
 }
 
@@ -727,11 +763,7 @@ void renderGameMain(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 {
     for (unsigned char i = 0; i < 4; i++)
     {
-        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-        SDL_RenderFillRect(r, &pt->buttons[i]);
-
-        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-        SDL_RenderDrawRect(r, &pt->buttons[i]);
+        renderMenuButton(r, &pt->buttons[i], pt->JOY_select == i);
 
         switch (i)
         {
@@ -740,7 +772,7 @@ void renderGameMain(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
                     f, r, 
                     (pt->buttons[i].x + 80),
                     pt->buttons[i].y + 10, 
-                    "Play Local");
+                    "Local Game");
             break;
             case 1:
                 FC_Draw(
@@ -980,13 +1012,25 @@ void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
         SDL_RenderFillRect(r, &pq);
     }
 
-    if (pt->p_state == P_GOAL)
+    switch (pt->p_state) 
     {
-        FC_DrawColor(
-            f, r, 
-            320 - 56, 20, 
-            FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
-            "SCORE!");
+        default: break;
+        case P_DROP:
+            FC_DrawColor(
+                f, r, 
+                304, 20, 
+                FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                pt->state_timer_string);
+        break;
+        case P_PLAY:
+        break;
+        case P_GOAL:
+            FC_DrawColor(
+                f, r, 
+                320 - 56, 20, 
+                FC_MakeColor(0xff, 0xff, 0x00, 0xff), 
+                "SCORE!");
+        break;
     }
 
     // draw scores
@@ -1005,17 +1049,11 @@ void renderGamePlay(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 }
 void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 {
+    for (unsigned char i = 2; i < 4; i++)
+        renderMenuButton(r, &pt->buttons[i], i == pt->JOY_select);
+
     if (pt->is_net)
     {
-        for (unsigned char i = 2; i < 4; i++)
-        {
-            SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-            SDL_RenderFillRect(r, &pt->buttons[i]);
-
-            SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-            SDL_RenderDrawRect(r, &pt->buttons[i]);
-        }
-
         FC_Draw(
             f, r, 
             (pt->buttons[2].x + 88), 
@@ -1030,49 +1068,23 @@ void renderGameMenu(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
     }
     else 
     {
-        for (unsigned char i = 1; i < 4; i++)
-        {
-            SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-            SDL_RenderFillRect(r, &pt->buttons[i]);
+        FC_Draw(
+            f, r, 
+            (pt->buttons[2].x + 88), 
+            pt->buttons[2].y + 10, 
+            "Main Menu"); 
 
-            SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-            SDL_RenderDrawRect(r, &pt->buttons[i]);
-
-            switch (i)
-            {
-                case 1:
-                    FC_Draw(
-                        f, r, 
-                        (pt->buttons[i].x + 128), 
-                        pt->buttons[i].y + 10, 
-                        "Host");
-                break;
-                case 2:
-                    FC_Draw(
-                        f, r, 
-                        (pt->buttons[i].x + 128), 
-                        pt->buttons[i].y + 10, 
-                        "Join");
-                break;
-                case 3:
-                    FC_Draw(
-                        f, r, 
-                        (pt->buttons[i].x + 96), 
-                        pt->buttons[i].y + 10, 
-                        "Main Menu");
-                break;
-            }
-        }
+        FC_Draw(
+            f, r, 
+            (pt->buttons[3].x + 128), 
+            pt->buttons[3].y + 10, 
+            "Exit");
     }
     
 }
 void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
 {
-    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-    SDL_RenderFillRect(r, &pt->buttons[1]);
-
-    SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
-    SDL_RenderDrawRect(r, &pt->buttons[1]);
+    renderMenuButton(r, &pt->buttons[1], false);
 
     FC_Draw(
         f, r, 
@@ -1087,27 +1099,54 @@ void renderGameHostJoin(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
         pt->buttons[1].x + (pt->input_field.str_pointer << 4),
         pt->buttons[1].y + pt->buttons[1].h);
 }
-void renderGameHosting(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+void renderGameHosting(SDL_Renderer *r, FC_Font *f, SDL_Rect btn)
 {
     SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-    SDL_RenderFillRect(r, &pt->buttons[1]);
+    SDL_RenderFillRect(r, &btn);
 
     FC_Draw(
         f, r, 
-        pt->buttons[1].x, 
-        pt->buttons[1].y + 10, 
+        btn.x, 
+        btn.y + 10, 
         "Hosting game ...");
 }
-void renderGameJoining(SDL_Renderer *r, FC_Font *f, P_TEST *pt)
+void renderGameJoining(SDL_Renderer *r, FC_Font *f, SDL_Rect btn)
 {
     SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
-    SDL_RenderFillRect(r, &pt->buttons[1]);
+    SDL_RenderFillRect(r, &btn);
 
     FC_Draw(
         f, r, 
-        pt->buttons[1].x, 
-        pt->buttons[1].y + 10, 
+        btn.x, 
+        btn.y + 10, 
         "Joining game ...");
+}
+
+void renderGameConfirm(SDL_Renderer *r, FC_Font *f, SDL_Rect btns[], unsigned char select)
+{
+    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderFillRect(r, &btns[0]);
+
+    renderMenuButton(r, &btns[2], select == 2);
+    renderMenuButton(r, &btns[3], select == 3);
+
+    FC_Draw(
+        f, r, 
+        btns[0].x, 
+        btns[0].y + 10, 
+        "Are you sure?");
+
+    FC_Draw(
+        f, r, 
+        btns[2].x, 
+        btns[2].y + 10, 
+        "Yes");
+
+    FC_Draw(
+        f, r, 
+        btns[3].x, 
+        btns[3].y + 10, 
+        "No");
 }
 
 void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
@@ -1117,34 +1156,20 @@ void renderGame(SDL_Renderer *r, FC_Font *f, P_TEST *pt, P players[])
 
     switch (pt->g_state)
     {
-        case G_MAIN:        renderGameMain(r, f, pt);       break;
-        case G_LOADING:     renderGameLoading(r, f, pt);    break;
+        default:                                                                    break;
+        case G_MAIN:        renderGameMain(r, f, pt);                               break;
+        case G_LOADING:     renderGameLoading(r, f, pt);                            break;
         case G_PLAY:
-        case G_PLAY_NET:    renderGamePlay(r, f, pt);       break;
-        case G_MENU:        renderGameMenu(r, f, pt);       break;
+        case G_PLAY_NET:    renderGamePlay(r, f, pt);                               break;
+        case G_MENU:        renderGameMenu(r, f, pt);                               break;
         case G_HOST:
-        case G_JOIN:        renderGameHostJoin(r, f, pt);   break;
-        case G_HOSTING:     renderGameHosting(r, f, pt);    break;
-        case G_JOINING:     renderGameJoining(r, f, pt);    break;
+        case G_JOIN:        renderGameHostJoin(r, f, pt);                           break;
+        case G_HOSTING:     renderGameHosting(r, f, pt->buttons[1]);                break;
+        case G_JOINING:     renderGameJoining(r, f, pt->buttons[1]);                break;
+        case G_CONFIRM:     renderGameConfirm(r, f, pt->buttons, pt->JOY_select);   break;
     }
 
     SDL_RenderPresent(r);
-}
-
-void renderClientGame(SDL_Renderer *r, SDL_Rect cam, P players[])
-{
-    for (unsigned char i = 0; i < MAX_NET_USERS; i++)
-    {
-        if (players[i].spawned)
-        {
-            renderPlayer(
-                r, 
-                players[i].texture->t,
-                &players[i], 
-                cam.x, 
-                cam.y);
-        }
-    }
 }
 
 void renderTiles(SDL_Renderer *renderer, P_TEST *pt)
@@ -1179,7 +1204,7 @@ void renderTiles(SDL_Renderer *renderer, P_TEST *pt)
 
 void animatePlayer(P *p)
 {
-    if (*p->dir)
+    if (*p->dir || p->JOY_vel)
     {
         if (p->a_counter++ % 8 == 0) 
         {
@@ -1204,386 +1229,18 @@ void inputsGame(P_TEST *pt, SDL_Event ev)
 {
     switch (pt->g_state)
     {
+        default:                                                break;
         case G_MAIN:        inputsGameMain(pt, ev);             break;
         case G_LOADING:     inputsGameLoading(pt, ev);          break;
         case G_PLAY:
-        case G_PLAY_NET:    inputsGamePlayNet(pt, ev);          break;
+        case G_PLAY_NET:    inputsGamePlay(pt, ev);             break;
         case G_MENU:        inputsGameMenu(pt, ev);             break;
         case G_HOST:        inputsGameHost(pt, ev);             break;
         case G_JOIN:        inputsGameJoin(pt, ev);             break;
         case G_HOSTING:
         case G_JOINING:     inputsGameHostingJoining(pt, ev);   break;
+        case G_CONFIRM:     inputsGameConfirm(pt, ev);          break;
     }
-}
-
-void inputsGamePlay(P_TEST *pt, SDL_Event ev)
-{
-    /*
-    while (SDL_PollEvent(&ev) != 0)
-    {
-        switch (ev.type)
-        {
-            case SDL_QUIT:
-                pt->quit = true;
-            break;
-            case SDL_KEYDOWN:
-                if (!ev.key.repeat)
-                {
-                    pt->c_player->JOY_use = false;
-
-                    switch (ev.key.keysym.sym)
-                    {
-                        case SDLK_ESCAPE: 
-                            if (pt->g_state == G_PLAY)
-                            {
-                                SDL_SetRelativeMouseMode(SDL_DISABLE);
-                                pt->w_focus = false;
-                                pt->g_state = G_MENU;
-                            }
-                            else if (pt->g_state == G_MENU)
-                            {
-                                SDL_SetRelativeMouseMode(SDL_ENABLE);
-                                pt->w_focus = true;
-                                pt->g_state = G_PLAY;
-                            }
-                        break;
-                        case SDLK_KP_ENTER:
-                        case SDLK_RETURN:
-                        case SDLK_RETURN2:
-                        break;
-                        case SDLK_a: 
-                            enqueue(pt->c_player->input_q, KEY_LEFT);
-                        break;
-                        case SDLK_w: 
-                            enqueue(pt->c_player->input_q, KEY_UP);
-                        break;
-                        case SDLK_d: 
-                            enqueue(pt->c_player->input_q, KEY_RIGHT);
-                        break;
-                        case SDLK_s: 
-                            enqueue(pt->c_player->input_q, KEY_DOWN); 
-                        break;
-                        case SDLK_SPACE:
-                        case SDLK_KP_SPACE:
-                            if (!pt->c_player->sprint_cdown 
-                            && pt->c_player->state != PLR_SWING 
-                            && pt->c_player->state != PLR_SHOOT) 
-                            {
-                                pt->c_player->sprint = true;
-                                pt->c_player->gvel = SPRINT_VELOCITY;
-                                pt->c_player->vel = SPRINT_VELOCITY;
-                            }
-                        break;
-                    }
-                }
-            break;
-            case SDL_KEYUP:
-                switch (ev.key.keysym.sym)
-                {
-                    case SDLK_a: 
-                        dequeue(pt->c_player->input_q, KEY_LEFT);
-                    break;
-                    case SDLK_w: 
-                        dequeue(pt->c_player->input_q, KEY_UP);
-                    break;
-                    case SDLK_d: 
-                        dequeue(pt->c_player->input_q, KEY_RIGHT);
-                    break;
-                    case SDLK_s: 
-                        dequeue(pt->c_player->input_q, KEY_DOWN);
-                    break;
-                    case SDLK_SPACE:
-                    case SDLK_KP_SPACE:
-                    break;
-                }
-            break;
-            case SDL_MOUSEMOTION:
-                if (pt->w_focus)
-                {
-                    pt->c_player->JOY_use = false;
-
-                    pt->c_player->crosshair.r.x += ev.motion.xrel;
-                    pt->c_player->crosshair.r.y += ev.motion.yrel;
-
-                    pt->c_player->m_move = true;
-                }
-            break;
-            case SDL_MOUSEBUTTONDOWN:
-                if (pt->g_state == G_PLAY)
-                {
-                    if (ev.button.button == SDL_BUTTON_LEFT)
-                    {
-                        switch (pt->c_player->state)
-                        {
-                            case PLR_SKATE_NP:
-                                if (!pt->c_player->m_hold)
-                                {
-                                    pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                    pt->c_player->state = PLR_SWING;
-                                    Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
-                                }
-                            break;
-                            default: break;
-                        }
-                        pt->c_player->m_hold = true;
-                    }
-                }
-                else if (pt->g_state == G_MENU)
-                {
-                    if (ev.button.button == SDL_BUTTON_LEFT)
-                    {
-                        for (int i = 0; i < 3; i++)
-                        {
-                            if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[i]))
-                            {
-                                switch (i)
-                                {
-                                    case 0: if (!pt->is_net) pt->g_state = G_HOST; break;
-                                    case 1: 
-                                        if (!pt->is_net) pt->g_state = G_JOIN; 
-                                        else 
-                                        {
-                                            // send disconnect signal
-                                            if (pt->network.localuser.id)
-                                            {
-                                                pt->network.localuser.status = N_DISCONNECT;
-
-                                                unsigned long timer = SDL_GetTicks64();
-
-                                                while (!pt->network.lost)
-                                                {
-                                                    if ((SDL_GetTicks64() - timer) >= 1000) 
-                                                        pt->network.tquit = true;
-                                                }
-                                            }
-                                            
-                                            // disconnect from net here
-                                            closeNet(&pt->network);
-                                            pt->is_net = false;
-
-                                            resetPlay(pt, pt->players, true);
-
-                                            pt->c_player = &pt->players[0];
-                                            pt->c_player->spawned = true;
-                                        }
-                                    break;
-                                    case 2: 
-                                        pt->quit = true; 
-                                        pt->is_net = false;
-                                    break;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            break;
-            case SDL_MOUSEBUTTONUP:
-                if (ev.button.button == SDL_BUTTON_LEFT && pt->w_focus)
-                {
-                    switch (pt->c_player->state)
-                    {
-                        case PLR_SKATE_WP:
-                            if (pt->c_player->m_hold)
-                            {
-                                if (pt->puck.state != P_STATE_HIT)
-                                {
-                                    pt->puck.state = P_STATE_HIT;
-
-                                    if (pt->c_player->pvel >= 4) 
-                                        pt->c_player->vel -= pt->c_player->gvel * 0.5f;
-                                    else 
-                                        pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                        
-                                    pt->c_player->swing_timer = 0;
-                                    pt->c_player->state = PLR_SHOOT;
-                                }
-                            }
-                        break;
-                        default: break;
-                    }
-                    pt->c_player->m_hold = false;
-                }
-            break;
-            case SDL_JOYAXISMOTION:
-                if (ev.jaxis.which == 0)
-                {
-                    switch (ev.jaxis.axis)
-                    {
-                        case 0:
-                        case 1:
-                            pt->c_player->JOY_use = true;
-
-                            if (ev.jaxis.axis == 0)
-                            {
-                                if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->c_player->JOY_xdir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
-                                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->c_player->JOY_xdir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
-                                else 
-                                    pt->c_player->JOY_xdir = 0;
-                            }
-                            else if (ev.jaxis.axis == 1)
-                            {
-                                if (ev.jaxis.value < -JOYSTICK_DEADZONE) 
-                                    pt->c_player->JOY_ydir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
-                                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->c_player->JOY_ydir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
-                                else 
-                                    pt->c_player->JOY_ydir = 0;
-                            }
-
-                            // this is too much, but it works
-                            pt->c_player->JOY_vel = (
-                                pt->c_player->JOY_xdir < 0 ? -pt->c_player->JOY_xdir : pt->c_player->JOY_xdir * SDL_cos(pt->c_player->INPUT_angle)) + (
-                                pt->c_player->JOY_ydir < 0 ? -pt->c_player->JOY_ydir : pt->c_player->JOY_ydir * SDL_sin(pt->c_player->INPUT_angle));
-
-                            if (pt->c_player->JOY_vel > 0.75f) pt->c_player->JOY_vel = 1.0f;
-                        break;
-                        case 3:
-                        case 4:
-                            pt->c_player->m_move = true;
-                            pt->c_player->JOY_use = true;
-
-                            if (ev.jaxis.axis == 3)
-                            {
-                                pt->c_player->AIM_xvel = (ev.jaxis.value / 32767.0f);
-
-                                if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->c_player->AIM_xdir = -1; 
-                                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->c_player->AIM_xdir = 1;
-                                else 
-                                    pt->c_player->AIM_xdir = 0;
-                            }
-                            else if (ev.jaxis.axis == 4)
-                            {
-                                pt->c_player->AIM_yvel = (ev.jaxis.value / 32767.0f);
-
-                                if (ev.jaxis.value < -JOYSTICK_DEADZONE)
-                                    pt->c_player->AIM_ydir = -1;
-                                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
-                                    pt->c_player->AIM_ydir = 1;
-                                else 
-                                    pt->c_player->AIM_ydir = 0;
-                            }
-                        break;
-                        case 2:
-                        break;
-                        case 5:
-                            switch (pt->c_player->state)
-                            {
-                                default: 
-                                    if (ev.jaxis.value > -16000) pt->c_player->m_hold = true;
-                                    else pt->c_player->m_hold = false;
-                                break;
-                                case PLR_SKATE_NP:
-                                    if (ev.jaxis.value > -16000)
-                                    {
-                                        if (!pt->c_player->m_hold) 
-                                        {
-                                            pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-                                            pt->c_player->state = PLR_SWING;
-                                            Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
-                                        }
-                                        pt->c_player->m_hold = true;
-                                    } 
-                                    else pt->c_player->m_hold = false;
-                                break;
-                                case PLR_SKATE_WP:
-                                    if (ev.jaxis.value > -16000) pt->c_player->m_hold = true;
-                                    else 
-                                    {
-                                        if (pt->c_player->m_hold) 
-                                        {
-                                            if (pt->puck.state != P_STATE_HIT)
-                                            {
-                                                pt->puck.state = P_STATE_HIT;
-
-                                                if (pt->c_player->pvel >= 4) 
-                                                    pt->c_player->vel -= pt->c_player->gvel * 0.5f;
-                                                else 
-                                                    pt->c_player->vel -= pt->c_player->gvel * 0.25f;
-
-                                                pt->c_player->swing_timer = 0;
-                                                pt->c_player->state = PLR_SHOOT;
-                                            }
-                                        }
-                                        pt->c_player->m_hold = false;
-                                    }
-                                break;
-                            }
-                        break;
-                    }
-                }
-            break;
-            case SDL_JOYBUTTONDOWN:
-                if (ev.jbutton.which == 0)
-                {
-                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
-                    {
-                        if (!pt->c_player->sprint_cdown 
-                        && (pt->c_player->state == PLR_SKATE_NP 
-                        || pt->c_player->state == PLR_SKATE_WP)) 
-                        {
-                            pt->c_player->sprint = true;
-                            pt->c_player->gvel = SPRINT_VELOCITY;
-                            pt->c_player->vel = SPRINT_VELOCITY;
-                        }
-                    }
-                    else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_B)
-                    {
-                        if (pt->c_player->state == PLR_SKATE_NP)
-                        {
-                            pt->c_player->state = PLR_BLOCK;
-                            pt->c_player->vel += STANDARD_VELOCITY * 0.5f;
-                            switch (pt->c_player->facing)
-                            {
-                                case FACING_DOWN:
-                                    pt->c_player->r.w = 16;
-                                    pt->c_player->r.h = 30;
-                                break;
-                                case FACING_UP:
-                                    pt->c_player->r.w = 16;
-                                    pt->c_player->r.h = 30;
-                                break;
-                                case FACING_RIGHT:
-                                    pt->c_player->r.w = 30;
-                                    pt->c_player->r.h = 16;
-                                break;
-                                case FACING_LEFT:
-                                    pt->c_player->r.w = 30;
-                                    pt->c_player->r.h = 16;
-                                break;
-                            }
-                        }
-                    }
-                }
-            break;
-            case SDL_JOYDEVICEADDED:
-                for (int i = 0; i < SDL_NumJoysticks(); i++) 
-                {
-                    if (SDL_IsGameController(i)) 
-                    {
-                        pt->controller = SDL_GameControllerOpen(i);
-                        if (pt->controller) 
-                        {
-                            printf("Controller %d connected!\n", i);
-                            break;
-                        }
-                        else fprintf(
-                            stderr, 
-                            "Could not open gamecontroller %i: %s\n", 
-                            i, SDL_GetError());
-                    }
-                }
-            break;
-            case SDL_JOYDEVICEREMOVED:
-                printf("Controller %d disconnected!\n", ev.jdevice.which);
-            break;
-        }
-    }
-    */
 }
 
 void inputsGameHostingJoining(P_TEST *pt, SDL_Event ev)
@@ -1634,8 +1291,8 @@ void inputsGameJoin(P_TEST *pt, SDL_Event ev)
                 switch (ev.key.keysym.sym)
                 {
                     case SDLK_ESCAPE: 
-                        if (pt->playing) pt->g_state = G_MENU;
-                        else pt->g_state = G_MAIN;
+                        resetInputField(&pt->input_field);
+                        pt->g_state = G_MAIN;
                     break;
                     case SDLK_BACKSPACE:
                         if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
@@ -1667,19 +1324,22 @@ void inputsGameJoin(P_TEST *pt, SDL_Event ev)
                     case SDLK_RETURN2:
                         if (!ev.key.repeat)
                         {
-                            if (pt->input_field.str_len > 8)
+                            if (pt->input_field.str_len >= 7)
                             {
-                                if (startNetClient(&pt->network, pt->input_field.string))
+                                if (checkIpString(pt->input_field.string))
                                 {
-                                    pt->g_state = G_JOINING;
-                                }
-                                else 
-                                {
-                                    closeNet(&pt->network);
-                                    pt->g_state = G_MAIN;
+                                    if (startNetClient(&pt->network, pt->input_field.string))
+                                    {
+                                        pt->g_state = G_JOINING;
+                                    }
+                                    else 
+                                    {
+                                        closeNet(&pt->network);
+                                        pt->g_state = G_MAIN;
+                                    }
+                                    resetInputField(&pt->input_field);
                                 }
                             }
-                            resetInputField(&pt->input_field);
                         }
                     break;
                 }
@@ -1696,6 +1356,14 @@ void inputsGameHost(P_TEST *pt, SDL_Event ev)
         {
             case SDL_QUIT: pt->quit = true;
             break;
+            case SDL_KEYDOWN:
+                if (ev.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    closeNet(&pt->network);
+                    pt->g_state = G_MAIN;
+                }
+            break;
+            /*
             case SDL_TEXTINPUT:
                 if (pt->input_field.str_len < 5)
                 {
@@ -1720,8 +1388,8 @@ void inputsGameHost(P_TEST *pt, SDL_Event ev)
                 switch (ev.key.keysym.sym)
                 {
                     case SDLK_ESCAPE: 
-                        if (pt->playing) pt->g_state = G_MENU;
-                        else pt->g_state = G_MAIN;
+                        resetInputField(&pt->input_field);
+                        pt->g_state = G_MAIN;
                     break;
                     case SDLK_BACKSPACE:
                         if (pt->input_field.str_pointer > 0 && pt->input_field.str_len > 0)
@@ -1756,7 +1424,7 @@ void inputsGameHost(P_TEST *pt, SDL_Event ev)
                             if (pt->input_field.str_len > 0)
                             {
                                 // setup host connection
-                                if (startNetHost(&pt->network, atoi(pt->input_field.string)))
+                                if (startNetHost(&pt->network))
                                 {
                                     pt->players[0].id = HOST_ID;
                                     pt->players[0].spawned = true;
@@ -1772,6 +1440,7 @@ void inputsGameHost(P_TEST *pt, SDL_Event ev)
                         }
                     break;
                 }
+            */
             break;
         }
     }
@@ -1781,24 +1450,75 @@ void inputsGameMain(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
-        if (ev.type == SDL_QUIT) pt->quit = true;
-        else if (ev.type == SDL_MOUSEBUTTONDOWN)
+        switch (ev.type)
         {
-            for (unsigned char i = 0; i < 4; i++)
-            {
-                if (checkMousePosition(
-                    ev.motion.x, ev.motion.y, pt->buttons[i])
-                )
+            case SDL_QUIT: pt->quit = true; break;
+            case SDL_MOUSEMOTION:
+                for (unsigned char i = 0; i < 4; i++)
                 {
-                    switch (i)
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[i]))
                     {
-                        case 0: pt->g_state = G_LOADING;    break;
-                        case 1: pt->g_state = G_HOST;       break;
-                        case 2: pt->g_state = G_JOIN;       break;
-                        case 3: pt->quit = true;            break;
+                        pt->JOY_select = i;
                     }
                 }
-            }
+            break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (ev.button.button == SDL_BUTTON_LEFT)
+                {
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[pt->JOY_select]))
+                    {
+                        switch (pt->JOY_select)
+                        {
+                            case 0: pt->g_state = G_LOADING;    break;
+                            case 1: pt->g_state = G_HOST;       break;
+                            case 2: pt->g_state = G_JOIN;       break;
+                            case 3: pt->quit = true;            break;
+                        }
+                    }
+                }
+            break;
+            case SDL_JOYAXISMOTION:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jaxis.axis == 1)
+                    {
+                        if (ev.jaxis.value < -JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold && pt->JOY_select > 0) pt->JOY_select--;
+                            pt->menu_hold = true;
+                        }
+                        else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold && pt->JOY_select < 3) pt->JOY_select++;
+                            pt->menu_hold = true;
+                        }
+                        else pt->menu_hold = false;
+                    }
+                }
+                
+            break;
+            case SDL_JOYBUTTONDOWN:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
+                    {
+                        switch (pt->JOY_select)
+                        {
+                            case 0: pt->g_state = G_LOADING;    break;
+                            case 1: pt->g_state = G_HOST;       break;
+                            case 2: pt->g_state = G_JOIN;       break;
+                            case 3: pt->quit = true;            break;
+                        }
+                    }
+                }
+            break;
+            case SDL_JOYDEVICEADDED:
+                checkControllers(pt->controllers);
+            break;
+            case SDL_JOYDEVICEREMOVED:
+                printf("Controller %d disconnected!\n", ev.jdevice.which);
+                removeController(pt->controllers, ev.jdevice.which, pt->players);
+            break;
         }
     }
 }
@@ -1826,59 +1546,135 @@ void inputsGameMenu(P_TEST *pt, SDL_Event ev)
                     else pt->g_state = G_PLAY;
                 }
             break;
+            case SDL_MOUSEMOTION:
+                for (unsigned char i = 2; i < 4; i++)
+                {
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[i]))
+                    {
+                        pt->JOY_select = i;
+                    }
+                }
+            break;
             case SDL_MOUSEBUTTONDOWN:
                 if (ev.button.button == SDL_BUTTON_LEFT)
                 {
-                    for (unsigned char i = 1; i < 4; i++)
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[pt->JOY_select]))
                     {
-                        if (checkMousePosition(
-                            ev.motion.x, ev.motion.y, pt->buttons[i])
-                        )
+                        if (pt->is_net)
                         {
-                            if (pt->is_net)
+                            if (pt->JOY_select == 2)
                             {
-                                if (i == 2)
+                                // send disconnect signal
+                                if (pt->network.type == NET_IS_CLIENT)
                                 {
-                                    // send disconnect signal
-                                    if (pt->network.type == NET_IS_CLIENT)
+                                    pt->network.localuser.status = N_DISCONNECT;
+
+                                    unsigned long timer = SDL_GetTicks64();
+
+                                    while (!pt->network.lost)
                                     {
-                                        pt->network.localuser.status = N_DISCONNECT;
-
-                                        unsigned long timer = SDL_GetTicks64();
-
-                                        while (!pt->network.lost)
-                                        {
-                                            if ((SDL_GetTicks64() - timer) >= 1000) 
-                                                pt->network.lost = true;
-                                        }
+                                        if ((SDL_GetTicks64() - timer) >= 1000) 
+                                            pt->network.lost = true;
                                     }
+                                }
 
-                                    closeNet(&pt->network);
-                                    pt->is_net = false;
-                                    resetPlay(pt, pt->players, true);
-                                    pt->g_state = G_MAIN;
-                                }
-                                else if (i == 3) pt->quit = true; 
+                                closeNet(&pt->network);
+                                pt->is_net = false;
+                                resetPlay(pt, pt->players, true);
+                                pt->JOY_select = 0;
+                                pt->g_state = G_MAIN;
                             }
-                            else 
+                            else if (pt->JOY_select == 3) pt->g_state = G_CONFIRM;
+                        }
+                        else 
+                        {
+                            if (pt->JOY_select == 2) 
                             {
-                                if (i == 1) pt->g_state = G_HOST;
-                                else if (i == 2) pt->g_state = G_JOIN;
-                                else if (i == 3) 
-                                {
-                                    resetPlay(pt, pt->players, true);
-                                    pt->g_state = G_MAIN;
-                                }
+                                resetPlay(pt, pt->players, true);
+                                pt->JOY_select = 0;
+                                pt->g_state = G_MAIN;
                             }
+                            else if (pt->JOY_select == 3) pt->g_state = G_CONFIRM;
                         }
                     }
                 }
+            break;
+            case SDL_JOYAXISMOTION:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jaxis.axis == 1)
+                    {
+                        if (ev.jaxis.value < -JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold) pt->JOY_select = 2;
+                            pt->menu_hold = true;
+                        }
+                        else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold) pt->JOY_select = 3;
+                            pt->menu_hold = true;
+                        }
+                        else pt->menu_hold = false;
+                    }
+                }
+                
+            break;
+            case SDL_JOYBUTTONDOWN:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
+                    {
+                        if (pt->is_net)
+                        {
+                            if (pt->JOY_select == 2)
+                            {
+                                // send disconnect signal
+                                if (pt->network.type == NET_IS_CLIENT)
+                                {
+                                    pt->network.localuser.status = N_DISCONNECT;
+
+                                    unsigned long timer = SDL_GetTicks64();
+
+                                    while (!pt->network.lost)
+                                    {
+                                        if ((SDL_GetTicks64() - timer) >= 1000) 
+                                            pt->network.lost = true;
+                                    }
+                                }
+
+                                closeNet(&pt->network);
+                                pt->is_net = false;
+                                resetPlay(pt, pt->players, true);
+                                pt->JOY_select = 0;
+                                pt->g_state = G_MAIN;
+                            }
+                            else if (pt->JOY_select == 3) pt->g_state = G_CONFIRM;
+                        }
+                        else 
+                        {
+                            if (pt->JOY_select == 2) 
+                            {
+                                resetPlay(pt, pt->players, true);
+                                pt->JOY_select = 0;
+                                pt->g_state = G_MAIN;
+                            }
+                            else if (pt->JOY_select == 3) pt->g_state = G_CONFIRM;
+                        }
+                    }
+                }
+            break;
+            case SDL_JOYDEVICEADDED:
+                checkControllers(pt->controllers);
+            break;
+            case SDL_JOYDEVICEREMOVED:
+                printf("Controller %d disconnected!\n", ev.jdevice.which);
+                removeController(pt->controllers, ev.jdevice.which, pt->players);
             break;
         }
     }
 }
 
-void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
+void inputsGamePlay(P_TEST *pt, SDL_Event ev)
 {
     while (SDL_PollEvent(&ev) != 0)
     {
@@ -1889,9 +1685,13 @@ void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
             case SDL_KEYDOWN:
                 if (!ev.key.repeat)
                 {
+                    pt->c_player->JOY_use = false;
+
                     switch (ev.key.keysym.sym)
                     {
-                        case SDLK_ESCAPE: pt->g_state = G_MENU; 
+                        case SDLK_ESCAPE: 
+                            pt->JOY_select = 2;
+                            pt->g_state = G_MENU; 
                         break;
                         case SDLK_a: 
                             enqueue(pt->c_player->input_q, KEY_LEFT);
@@ -1948,6 +1748,8 @@ void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
                 }
             break;
             case SDL_KEYUP:
+                pt->c_player->JOY_use = false;
+
                 switch (ev.key.keysym.sym)
                 {
                     case SDLK_a: 
@@ -1986,55 +1788,362 @@ void inputsGamePlayNet(P_TEST *pt, SDL_Event ev)
                     break;
                 }
             break;
+            case SDL_MOUSEMOTION:
+            break;
             case SDL_MOUSEBUTTONDOWN:
-                /*
-                if (pt->g_state == G_MENU && ev.button.button == SDL_BUTTON_LEFT)
+            break;
+            case SDL_JOYDEVICEADDED:
+                checkControllers(pt->controllers);
+            break;
+            case SDL_JOYDEVICEREMOVED:
+                printf("Controller %d disconnected!\n", ev.jdevice.which);
+                removeController(pt->controllers, ev.jdevice.which, pt->players);
+            break;
+            case SDL_JOYAXISMOTION:
+                if (!pt->is_net)
                 {
-                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[1]))
+                    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
                     {
-                        // send disconnect signal
-                        if (pt->network.localuser.id)
+                        if (ev.jaxis.which == pt->players[i].ctrl_id) 
                         {
-                            pt->network.localuser.status = N_DISCONNECT;
-
-                            unsigned long timer = SDL_GetTicks64();
-
-                            printf("NET: wait on disconnect (1 second) from host ...\n");
-
-                            while (!pt->network.lost)
-                            {
-                                if ((SDL_GetTicks64() - timer) >= 1000) 
-                                    pt->network.tquit = true;
-                            }
+                            pt->players[i].JOY_use = true;
+                            inputsGameJoyAxis(&pt->players[i], ev);
                         }
-                        // disconnect from net here
-                        closeNet(&pt->network);
-                        pt->is_net = false;
-
-                        resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
-                        resetPlay(pt, pt->players, true);
-
-                        pt->c_player = &pt->players[0];
-                        pt->c_player->spawned = true;
-                    }
-                    else if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[2]))
-                    {
-                        pt->quit = true; 
-                        pt->is_net = false;
                     }
                 }
-                */
+                else 
+                {
+                    if (ev.jaxis.which == 0) 
+                    {
+                        pt->c_player->JOY_use = true;
+                        inputsGameJoyAxis(pt->c_player, ev);
+                    }
+                }
+            break;
+            case SDL_JOYBUTTONDOWN:
+                if (!pt->is_net)
+                {
+                    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
+                    {
+                        if (ev.jbutton.which == pt->players[i].ctrl_id)
+                        {
+                            pt->players[i].JOY_use = true;
+                        
+                            if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
+                            {
+                                if (!pt->players[i].sprint_cdown 
+                                && pt->players[i].state == PLR_SKATE_NP) 
+                                {
+                                    pt->players[i].gvel = SPRINT_VELOCITY;
+                                    pt->players[i].state = PLR_SPRINT;
+                                }
+                            }
+                            else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_B)
+                            {
+                                if (pt->players[i].state == PLR_SKATE_NP && pt->players[i].JOY_vel)
+                                {
+                                    pt->players[i].gvel += STANDARD_VELOCITY * 0.375f;
+                                    pt->players[i].state = PLR_BLOCK;
+                                }
+                            }
+                            else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_START)
+                            {
+                                if (&pt->players[i] == pt->c_player)
+                                {
+                                    pt->JOY_select = 2;
+                                    pt->g_state = G_MENU;
+                                }
+                            }
+                            else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_BACK)
+                            {
+                                if (&pt->players[i] != pt->c_player)
+                                    removeController(pt->controllers, ev.jdevice.which, pt->players);
+                            }
+                        }
+                    }
+
+                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_START)
+                    {
+                        if (!pt->is_net)
+                        {
+                            bool has = false;
+
+                            for (unsigned char j = 1; j < MAX_GAME_USERS; j++)
+                            {
+                                if (pt->players[j].ctrl_id == ev.jbutton.which)
+                                {
+                                    has = true;
+                                    break;
+                                }
+                            }
+
+                            if (!has) 
+                            {
+                                for (unsigned char j = 1; j < MAX_GAME_USERS; j++)
+                                {
+                                    if (pt->players[j].ctrl_id == JOY_ID_NULL)
+                                    {
+                                        resetPlayer(
+                                            &pt->players[j], 
+                                            pt->level.r.w >> 1, 
+                                            pt->level.r.h >> 1);
+                                            
+                                        pt->players[j].ctrl_id = ev.jbutton.which;
+                                        pt->players[j].spawned = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else 
+                {
+                    if (ev.jbutton.which == 0) 
+                    {
+                        pt->c_player->JOY_use = true;
+
+                        if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
+                        {
+                            if (!pt->c_player->sprint_cdown 
+                            && pt->c_player->state == PLR_SKATE_NP) 
+                            {
+                                pt->c_player->gvel = SPRINT_VELOCITY;
+                                pt->c_player->state = PLR_SPRINT;
+                            }
+                        }
+                        else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_B)
+                        {
+                            if (pt->c_player->state == PLR_SKATE_NP && pt->c_player->JOY_vel)
+                            {
+                                pt->c_player->gvel += STANDARD_VELOCITY * 0.375f;
+                                pt->c_player->state = PLR_BLOCK;
+                            }
+                        }
+                        else if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_START)
+                        {
+                            pt->JOY_select = 2;
+                            pt->g_state = G_MENU;
+                        }
+                    }
+                }
             break;
         }
     }
 }
 
+void inputsGameConfirm(P_TEST *pt, SDL_Event ev)
+{
+    while (SDL_PollEvent(&ev) != 0)
+    {
+        switch (ev.type)
+        {
+            case SDL_QUIT: pt->quit = true; 
+            break;
+            case SDL_KEYDOWN:
+                if (!ev.key.repeat && ev.key.keysym.sym == SDLK_ESCAPE)
+                {
+                    pt->g_state = G_MENU;
+                }
+            break;
+            case SDL_MOUSEMOTION:
+                for (unsigned char i = 2; i < 4; i++)
+                {
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[i]))
+                    {
+                        pt->JOY_select = i;
+                    }
+                }
+            break;
+            case SDL_MOUSEBUTTONDOWN:
+                if (ev.button.button == SDL_BUTTON_LEFT)
+                {
+                    if (checkMousePosition(ev.motion.x, ev.motion.y, pt->buttons[pt->JOY_select]))
+                    {
+                        if (pt->JOY_select == 2)
+                        {
+                            pt->quit = true;
+                        }
+                        else if (pt->JOY_select == 3)
+                        {
+                            pt->g_state = G_MENU;
+                        }
+                    }
+                }
+            break;
+            case SDL_JOYAXISMOTION:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jaxis.axis == 1)
+                    {
+                        if (ev.jaxis.value < -JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold) pt->JOY_select = 2;
+                            pt->menu_hold = true;
+                        }
+                        else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                        {
+                            if (!pt->menu_hold) pt->JOY_select = 3;
+                            pt->menu_hold = true;
+                        }
+                        else pt->menu_hold = false;
+                    }
+                }
+                
+            break;
+            case SDL_JOYBUTTONDOWN:
+                if (ev.jaxis.which == 0)
+                {
+                    if (ev.jbutton.button == SDL_CONTROLLER_BUTTON_A)
+                    {
+                        if (pt->JOY_select == 2)
+                        {
+                            pt->quit = true;
+                        }
+                        else if (pt->JOY_select == 3)
+                        {
+                            pt->g_state = G_MENU;
+                        }
+                    }
+                }
+            break;
+        }
+    }
+}
+
+void inputsGameJoyAxis(P *p, SDL_Event ev)
+{
+    switch (ev.jaxis.axis)
+    {
+        default: break;
+        case 0: // left stick l/r
+        case 1: // left stick u/d
+            if (ev.jaxis.axis == 0)
+            {
+                if (ev.jaxis.value < -JOYSTICK_DEADZONE)
+                    p->JOY_xdir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                    p->JOY_xdir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                else 
+                    p->JOY_xdir = 0;
+            }
+            else if (ev.jaxis.axis == 1)
+            {
+                if (ev.jaxis.value < -JOYSTICK_DEADZONE) 
+                    p->JOY_ydir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                    p->JOY_ydir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                else 
+                    p->JOY_ydir = 0;
+            }
+
+            p->JOY_vel = p->JOY_xdir || p->JOY_ydir ? 1 : 0;
+        break;
+        case 2: // right stick l/r
+        case 3: // right stick u/p
+            if (ev.jaxis.axis == 2)
+            {
+                if (ev.jaxis.value < -JOYSTICK_DEADZONE) 
+                    p->AIM_xdir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                    p->AIM_xdir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                else 
+                    p->AIM_xdir = 0;
+            }
+            else if (ev.jaxis.axis == 3)
+            {
+                if (ev.jaxis.value < -JOYSTICK_DEADZONE)
+                    p->AIM_ydir = ((ev.jaxis.value + JOYSTICK_DEADZONE) / 24000.0f);
+                else if (ev.jaxis.value > JOYSTICK_DEADZONE)
+                    p->AIM_ydir = ((ev.jaxis.value - JOYSTICK_DEADZONE) / 24000.0f);
+                else 
+                    p->AIM_ydir = 0;
+            }
+        break;
+        case 5:
+            switch (p->state)
+            {
+                default: break;
+                case PLR_SKATE_NP:
+                    if (ev.jaxis.value > -16000)
+                    {
+                        if (!p->m_hold) 
+                        {
+                            p->gvel -= STANDARD_VELOCITY * 0.25f;
+                            p->state = PLR_SWING;
+                            //Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
+                        }
+                        p->m_hold = true;
+                    } 
+                    else p->m_hold = false;
+                break;
+                case PLR_SKATE_WP:
+                case PLR_SHOOT_MAX:
+                    if (ev.jaxis.value > -16000) p->m_hold = true;
+                    else 
+                    {
+                        if (p->m_hold) 
+                        {
+                            p->swing_timer = 0;
+                            p->state = PLR_SHOOT;
+                        }
+                        p->m_hold = false;
+                    }
+                break;
+            }
+        break;
+    }
+}
+
 void startLocalGame(P_TEST *pt)
 {
-    resetPlay(pt, pt->players, true);
+    pt->is_net = false;
+    pt->state_change = false;
+    pt->playing = false;
+
+    pt->SCORE_timer = 0;
+    pt->STATE_timer = 0;
+    pt->STATE_cntdwn = 3;
+
+    pt->PUCK_freeze = false;
+    pt->PUCK_freeze_timer = 0;
+
+    pt->score.score1 = 0;
+    pt->score.score2 = 0;
+
+    resetGoalkeeper(&pt->goalie[0], 154);
+    resetGoalkeeper(&pt->goalie[1], 742);
+
+    resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
+
+    pt->camera.x = pt->puck.x - (pt->camera.w >> 1);
+    pt->camera.y = pt->puck.y - (pt->camera.h >> 1);
+
+    pt->c_player = NULL;
+
+    for (unsigned i = 0; i < MAX_GAME_USERS; i++)
+    {
+        resetPlayer(
+            &pt->players[i],
+            pt->level.r.w >> 1, 
+            pt->level.r.h >> 1);
+
+        pt->players[i].id = 0;
+        pt->players[i].ctrl_id = JOY_ID_NULL;
+        pt->players[i].spawned = false;
+    }
+
+    pt->c_player = &pt->players[0];
+    
+    pt->c_player->club_r.x = pt->c_player->x + pt->c_player->AIM_radx;
+    pt->c_player->club_r.y = pt->c_player->y + pt->c_player->AIM_rady;
+
+    pt->c_player->r.x = pt->c_player->x - pt->camera.x;
+    pt->c_player->r.y = pt->c_player->y - pt->camera.y;
+
     pt->c_player->spawned = true;
-    pt->playing = true;
-    pt->g_state = G_PLAY;
+
+    pt->p_state = P_DROP;
 }
 
 void shootPuck(Puck *puck, float vel, float x, float y, float angle)
@@ -2045,41 +2154,6 @@ void shootPuck(Puck *puck, float vel, float x, float y, float angle)
     puck->yvel = vel * SDL_sin(angle);
     puck->state = P_STATE_HIT;
 }
-
-/*
-bool playShootGun(P_TEST play, BUL bullets[], int sx, int sy, int dx, int dy)
-{
-    bool success = false;
-    
-    double angle = (SDL_atan2(
-        dy - sy + play.GUN_rady, 
-        dx - sx + play.GUN_radx));
-
-    char sway = rand() % 7;
-
-    float rx = (AIM_RADIUS * SDL_cos(angle)) + (-6 + sway),
-          ry = (AIM_RADIUS * SDL_sin(angle)) + (-6 + sway);
-
-    for (int i = 0; i < 10; i++)
-    {
-        if (!bullets[i].shoot)
-        {
-            bullets[i].shoot = true;
-
-            bullets[i].x = sx + play.GUN_radx;
-            bullets[i].y = sy + play.GUN_rady;
-
-            bullets[i].xvel = (rx / play.GUN_speed);
-            bullets[i].yvel = (ry / play.GUN_speed);
-
-            success = true;
-            break;
-        }
-    }
-
-    return success;
-}
-*/
 
 void enqueue(unsigned char *q, unsigned char val)
 {
@@ -2125,25 +2199,13 @@ void adjustGoalieY(float *gky, float ry, float vy)
     else if (*gky > 160) *gky = 160;
 }
 
-void updateBulletHits(B_HITS *hits, int bx, int by)
-{
-    hits->a[hits->index].x = bx;
-    hits->a[hits->index].y = by;
-
-    hits->a[hits->index].used = true;
-
-    if (++hits->index > 29) hits->index = 0;
-}
-
 void updateGameMain(P_TEST *pt)
 {
 
 }
 void updateGameLoading(P_TEST *pt)
 {
-    resetPlay(pt, pt->players, true);
-    pt->c_player->spawned = true;
-    pt->playing = true;
+    startLocalGame(pt);
     pt->g_state = G_PLAY;
 }
 void updateGameMenu(P_TEST *pt)
@@ -2152,7 +2214,18 @@ void updateGameMenu(P_TEST *pt)
 }
 void updateGameHost(P_TEST *pt)
 {
-
+    // setup host connection
+    if (startNetHost(&pt->network))
+    {
+        pt->players[0].id = HOST_ID;
+        pt->players[0].spawned = true;
+        pt->g_state = G_HOSTING;
+    }
+    else 
+    {
+        closeNet(&pt->network);
+        pt->g_state = G_MAIN;
+    }
 }
 void updateGameJoin(P_TEST *pt)
 {
@@ -2224,90 +2297,6 @@ void updateGame(P_TEST *pt, P players[])
     }
 }
 
-void updateGameDrop(P_TEST *pt, P players[])
-{
-    for (unsigned char i = 0; i < 2; i++)
-    {
-        if (players[i].spawned)
-        {
-            if (players[i].JOY_use)
-            {
-                if (players[i].AIM_xdir || players[i].AIM_ydir)
-                {
-                    players[i].AIM_angle = SDL_atan2(players[i].AIM_yvel, players[i].AIM_xvel);
-
-                    players[i].crosshair.r.x = (
-                        players[i].x - pt->camera.x + (AIM_RADIUS * SDL_cos(players[i].AIM_angle)));
-
-                    players[i].crosshair.r.y = (
-                        players[i].y - pt->camera.y + (AIM_RADIUS * SDL_sin(players[i].AIM_angle)));
-                }
-                else 
-                {
-                    players[i].crosshair.r.x = players[i].x - pt->camera.x;
-                    players[i].crosshair.r.y = players[i].y - pt->camera.y;
-                    players[i].crosshair.show = false;
-                    players[i].m_move = false;
-                }
-            }
-            else 
-            {
-                if (players[i].m_move)
-                {
-                    players[i].AIM_angle = (SDL_atan2(
-                        pt->camera.y + players[i].crosshair.r.y - players[i].y, 
-                        pt->camera.x + players[i].crosshair.r.x - players[i].x));
-                }
-            }
-
-            if (players[i].m_move)
-            {
-                players[i].m_move = false;
-
-                players[i].AIM_timer = 0;
-                players[i].AIM_done = true;
-
-                players[i].crosshair.show = true;
-            }
-
-            if (players[i].AIM_done && players[i].AIM_timer++ > 240) 
-            {
-                players[i].AIM_done = false;
-                players[i].AIM_timer = 0;
-
-                players[i].crosshair.r.x = players[i].x - pt->camera.x;
-                players[i].crosshair.r.y = players[i].y - pt->camera.y;
-                players[i].crosshair.show = false;
-            }
-
-            if (!players[i].crosshair.show) 
-                players[i].AIM_angle = players[i].INPUT_angle;
-
-            if (players[i].state == PLR_SWING)
-            {
-                if (checkCollision(players[i].club_r, pt->puck.r))
-                {
-                    // puck goes wild
-                    pt->puck.state = P_STATE_HIT;
-                    pt->puck.xvel = 1.5f * SDL_cos(players[i].AIM_angle);
-                    pt->puck.yvel = 1.5f * SDL_sin(players[i].AIM_angle);
-
-                    pt->PUCK_freeze = true;
-
-                    pt->p_state = P_PLAY;
-
-                    Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                }
-            }
-
-            players[i].r.x = players[i].x - 10;
-            players[i].r.y = players[i].y;
-
-            animatePlayer(&players[i]);
-        }
-    }
-}
-
 void updateGamePlay(P_TEST *pt, P plrs[])
 {
     switch (pt->p_state)
@@ -2324,16 +2313,21 @@ void updateGamePlay(P_TEST *pt, P plrs[])
                 {
                     if (plrs[p].spawned)
                     {
-                        resetPlayer(&plrs[p], pt->level.r.w >> 1, (pt->level.r.h >> 1) + 40);
-                        plrs[p].spawned = true;
+                        resetPlayer(
+                            &plrs[p], 
+                            pt->level.r.w >> 1, 
+                            (pt->level.r.h >> 1) + 40);
                     }
                 }
+
+                n_itoa(pt->STATE_cntdwn, pt->state_timer_string);
 
                 pt->state_change = true;
             }
             
             if (++pt->STATE_timer > 180)
             {
+                pt->STATE_cntdwn = 3;
                 pt->STATE_timer = 0;
                 pt->state_change = false;
                 pt->p_state = P_PLAY;
@@ -2348,6 +2342,12 @@ void updateGamePlay(P_TEST *pt, P plrs[])
                         plrs[p].y = (pt->level.r.h >> 1) + 40;
                     }
                 }
+
+                if ((pt->STATE_timer % 60) == 0) 
+                {
+                    pt->STATE_cntdwn--;
+                    n_itoa(pt->STATE_cntdwn, pt->state_timer_string);
+                }
             }
         break;
         case P_PLAY:
@@ -2355,6 +2355,11 @@ void updateGamePlay(P_TEST *pt, P plrs[])
             {
                 if (checkGoal(pt->puck.r, pt->goal_r[i]))
                 {
+                    if (i == 0) pt->score.score1++;
+                    else if (i == 1) pt->score.score2++;
+                    // convert scores to string
+                    n_itoa(pt->score.score1, pt->score.score1_string);
+                    n_itoa(pt->score.score2, pt->score.score2_string);
                     pt->p_state = P_GOAL;
                 }
             }
@@ -2504,6 +2509,22 @@ void updateGamePlay(P_TEST *pt, P plrs[])
                         plrs[i].r.h = 20;
                         plrs[i].state = PLR_SKATE_NP;
                     }
+                    else 
+                    {
+                        switch (plrs[i].facing)
+                        {
+                            case FACING_DOWN:
+                            case FACING_UP:
+                                plrs[i].r.w = 16;
+                                plrs[i].r.h = 30;
+                            break;
+                            case FACING_RIGHT:
+                            case FACING_LEFT:
+                                plrs[i].r.w = 30;
+                                plrs[i].r.h = 16;
+                            break;
+                        }
+                    }
 
                     switch (plrs[i].facing)
                     {
@@ -2527,9 +2548,8 @@ void updateGamePlay(P_TEST *pt, P plrs[])
                 break;
             }
 
-            if (plrs[i].state != PLR_BLOCK) 
-                updatePlayerInputs(&plrs[i]);
-
+            if (plrs[i].state != PLR_BLOCK) updatePlayerInputs(&plrs[i]);
+            
             if (plrs[i].JOY_vel && plrs[i].state != PLR_SHOOT_MAX)
             {
                 float   cos = (
@@ -2549,11 +2569,9 @@ void updateGamePlay(P_TEST *pt, P plrs[])
                 }
             }
 
-            if (plrs[i].xvel) 
-                updatePlayerX(&plrs[i], pt->level);
+            if (plrs[i].xvel) updatePlayerX(&plrs[i], pt->level);
 
-            if (plrs[i].yvel) 
-                updatePlayerY(&plrs[i], pt->level);
+            if (plrs[i].yvel) updatePlayerY(&plrs[i], pt->level);
 
             if (plrs[i].m_hold)
             {
@@ -2593,125 +2611,6 @@ void updateGamePlay(P_TEST *pt, P plrs[])
     pt->ry = pt->puck.y;
 
     updateCamera(&pt->camera, pt->level.r, pt->rx);
-
-    /*
-    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
-    {
-        if (players[i].spawned)
-        {
-            updatePlayer(&players[i], pt);
-
-            switch (players[i].state)
-            {
-                case PLR_SKATE_NP:
-                    if (pt->puck.state == P_STATE_NORMAL)
-                    {
-                        bool grab = false;
-
-                        for (int j = 0; j < 2; j++) 
-                        {
-                            if (players[j].state == PLR_SKATE_WP) 
-                            {
-                                grab = true; 
-                                break;
-                            }
-                            else if (pt->goalie[j].grab)
-                            {
-                                grab = true; 
-                                break;
-                            }
-                        }
-
-                        if (!grab)
-                        {
-                            if (checkCollision(players[i].r, pt->puck.r))
-                            {
-                                pt->puck.xvel = 0;
-                                pt->puck.yvel = 0;
-                                pt->puck.fvelx = 0.01f;
-                                pt->puck.fvely = 0.01f;
-                                pt->puck.x = players[i].club_r.x + (players[i].club_r.w >> 1);
-                                pt->puck.y = players[i].club_r.y + (players[i].club_r.h >> 1);
-
-                                players[i].pvel = MIN_SHOOT_VELOCITY;
-                                players[i].state = PLR_SKATE_WP;
-
-                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                            }
-                        }
-                    }
-                break;
-                case PLR_SKATE_WP:
-                break;
-                case PLR_SWING:
-                    // check if another player has the puck
-                    for (int j = 0; j < 2; j++)
-                    {
-                        if (&players[i] != &players[j])
-                        {
-                            if (players[j].state == PLR_SKATE_WP
-                            && checkCollision(players[i].club_r, players[j].club_r))
-                            {
-                                // puck goes wild
-                                pt->puck.state = P_STATE_HIT;
-                                pt->puck.xvel = SDL_cos(players[i].AIM_angle);
-                                pt->puck.yvel = SDL_sin(players[i].AIM_angle);
-
-                                pt->PUCK_freeze = true;
-
-                                players[j].state = PLR_SKATE_NP;
-
-                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                                break;
-                            }
-                        }
-                    }
-                break;
-                default: break;
-            }
-            animatePlayer(&players[i]);
-        }
-    }
-
-    if (!pt->PUCK_freeze)
-    {
-        SDL_Rect *r = &pt->puck.r;
-        bool grab = false;
-        unsigned char i = 0;
-
-        for (; i < 2; i++)
-        {
-            if (pt->goalie[i].grab)
-            {
-                r = &pt->goalie[i].r;
-                grab = true;
-                break;
-            }
-        }
-
-        for (i = 0; i < pt->network.numplayers; i++) 
-        {
-            if (players[i].state == PLR_SKATE_WP) 
-            {
-                r = &players[i].r;
-                grab = true;
-                break;
-            }
-        }
-
-        updatePuck(pt, players);
-        updateGoalKeepers(pt, players, grab);
-
-        for (i = 0; i < 2; i++)
-        {
-            if (checkGoal(pt->puck.r, pt->goal_r[i]))
-                pt->p_state = P_GOAL;
-        }
-
-        pt->rx = r->x;
-        pt->ry = r->y;
-    }
-    */
 }
 
 void updateGamePlayNet(P_TEST *pt)
@@ -2775,489 +2674,14 @@ void updateGamePlayNet(P_TEST *pt)
         pt->c_player->spawned = true;
     }
 
-    // convert scores to string
+    // convert score to string
     n_itoa(pt->score.score1, pt->score.score1_string);
     n_itoa(pt->score.score2, pt->score.score2_string);
 
     updateCamera(&pt->camera, pt->level.r, pt->rx);
 }
 
-void updateGameGoal(P_TEST *pt, P players[])
-{
-    for (int i = 0; i < 2; i++)
-    {
-        if (players[i].spawned) 
-        {
-            updatePlayer(&players[i], pt);
-            animatePlayer(&players[i]);
-        }
-            
-    }
-
-    if (pt->puck.xvel > 0)
-    {
-        pt->puck.xvel -= pt->puck.fvelx;
-        if (pt->puck.xvel < 0) 
-            pt->puck.xvel = 0;
-    }
-    else if (pt->puck.xvel < 0)
-    {
-        pt->puck.xvel += pt->puck.fvelx;
-        if (pt->puck.xvel > 0) 
-            pt->puck.xvel = 0;
-    }
-    
-    if (pt->puck.yvel > 0)
-    {
-        pt->puck.yvel -= pt->puck.fvely;
-        if (pt->puck.yvel < 0) 
-            pt->puck.yvel = 0;
-    }
-    else if (pt->puck.yvel < 0)
-    {
-        pt->puck.yvel += pt->puck.fvely;
-        if (pt->puck.yvel > 0) 
-            pt->puck.yvel = 0;
-    }
-
-    if (pt->puck.xvel)
-    {
-        float px = pt->puck.x + pt->puck.xvel;
-
-        if (checkPlayerPosition(
-            (int)px >> pt->level.t_bit_size, 
-            (int)pt->puck.y >> pt->level.t_bit_size, 
-            pt->level.collision, pt->level.t_map_h)
-        )
-        {
-            pt->puck.xvel = -pt->puck.xvel;
-            pt->puck.fvelx += 0.3f;
-            pt->puck.fvely += 0.02f;
-        }
-        else if (px < 0 || px > pt->level.r.w) 
-        {
-            pt->puck.xvel = -pt->puck.xvel;
-            pt->puck.fvelx += 0.3f;
-            pt->puck.fvely += 0.02f;
-        }
-        else pt->puck.x = px;
-    }
-
-    if (pt->puck.yvel)
-    {
-        float py = pt->puck.y + pt->puck.yvel;
-
-        if (checkPlayerPosition(
-            (int)pt->puck.x >> pt->level.t_bit_size, 
-            (int)py >> pt->level.t_bit_size, 
-            pt->level.collision, pt->level.t_map_h)
-        )
-        {
-            pt->puck.yvel = -pt->puck.yvel;
-            pt->puck.fvelx += 0.02f;
-            pt->puck.fvely += 0.3f;
-        }
-        else if (py < 0 || py > pt->level.r.h) 
-        {
-            pt->puck.yvel = -pt->puck.yvel;
-            pt->puck.fvelx += 0.02f;
-            pt->puck.fvely += 0.3f;
-        }
-        else pt->puck.y = py;
-    }
-
-    if (!pt->puck.xvel && !pt->puck.yvel)
-    {
-        pt->puck.fvelx = 0.01f;
-        pt->puck.fvely = 0.01f;
-    }
-
-    pt->puck.r.x = pt->puck.x;
-    pt->puck.r.y = pt->puck.y;
-
-    if (++pt->SCORE_timer > 240)
-    {
-        resetPuck(&pt->puck, pt->level.r.w >> 1, pt->level.r.h >> 1);
-        resetPlay(pt, pt->players, false);
-
-        pt->sprint_hud_r.w = 0;
-
-        pt->rx = pt->puck.r.x;
-        pt->ry = pt->puck.r.y;
-
-        pt->SCORE_timer = 0;
-
-        pt->p_state = P_DROP;
-    }
-}
-
-void updatePlayer(P *p, P_TEST *pt)
-{
-    switch (p->state)
-    {
-        case PLR_SKATE_NP:
-            movePlayer(p, pt->camera);
-
-            if (p->sprint && (++p->sprint_timer > 60))
-            {
-                p->sprint_timer = 0;
-                p->sprint = false;
-                p->sprint_cdown = true;
-                p->gvel = STANDARD_VELOCITY;
-                p->vel = STANDARD_VELOCITY;
-            }
-
-            if (p->sprint_cdown && (++p->sprint_cdown_timer > 180))
-            {
-                p->sprint_cdown = false;
-                p->sprint_cdown_timer = 0;
-
-                pt->sprint_hud_r.w = 0;
-            }
-            else if (p->sprint_cdown)
-            {
-                pt->sprint_hud_r.w = (p->sprint_cdown_timer / 6) << 1;
-            }
-
-            if (p->m_move)
-            {
-                p->m_move = false;
-
-                p->AIM_timer = 0;
-                p->AIM_done = true;
-
-                p->crosshair.show = true;
-            }
-
-            if (p->AIM_done && p->AIM_timer++ > 240) 
-            {
-                p->AIM_done = false;
-                p->AIM_timer = 0;
-
-                p->crosshair.r.x = p->x - pt->camera.x;
-                p->crosshair.r.y = p->y - pt->camera.y;
-                p->crosshair.show = false;
-            }
-
-            if (!p->crosshair.show) p->AIM_angle = p->INPUT_angle;
-        break;
-        case PLR_SKATE_WP:
-            movePlayer(p, pt->camera);
-
-            if (p->sprint && (++p->sprint_timer > 60))
-            {
-                p->sprint_timer = 0;
-                p->sprint = false;
-                p->sprint_cdown = true;
-                p->gvel = STANDARD_VELOCITY;
-                p->vel = STANDARD_VELOCITY;
-            }
-
-            if (p->sprint_cdown && (++p->sprint_cdown_timer > 300))
-            {
-                p->sprint_cdown = false;
-                p->sprint_cdown_timer = 0;
-
-                pt->sprint_hud_r.w = 0;
-            }
-            else if (p->sprint_cdown)
-            {
-                pt->sprint_hud_r.w = (p->sprint_cdown_timer / 6) << 1;
-            }
-
-            if (p->m_move)
-            {
-                p->m_move = false;
-
-                p->AIM_timer = 0;
-                p->AIM_done = true;
-
-                p->crosshair.show = true;
-            }
-
-            if (p->AIM_done && p->AIM_timer++ > 240) 
-            {
-                p->AIM_done = false;
-                p->AIM_timer = 0;
-
-                p->crosshair.r.x = p->x - pt->camera.x;
-                p->crosshair.r.y = p->y - pt->camera.y;
-                p->crosshair.show = false;
-            }
-
-            if (p->m_hold)
-            {
-                if ((p->pvel += 0.1f) > MAX_SHOOT_VELOCITY)
-                    p->pvel = MAX_SHOOT_VELOCITY;
-            }
-
-            if (!p->crosshair.show) p->AIM_angle = p->INPUT_angle;
-
-            pt->puck.x = p->club_r.x + (p->club_r.w >> 1);
-            pt->puck.y = p->club_r.y + (p->club_r.h >> 1);
-        break;
-        case PLR_SHOOT:
-            p->swing_timer++;
-
-            if (p->pvel < 4 && pt->PUCK_freeze) p->JOY_vel = 0;
-            else p->JOY_vel = 1;
-
-            if (p->swing_timer < 3)
-            {
-                pt->puck.x = p->x;
-                pt->puck.y = p->y;
-            }
-            else if (p->swing_timer == 3)
-            {
-                shootPuck(
-                    &pt->puck, 
-                    pt->c_player->pvel, 
-                    pt->c_player->x - 4, 
-                    pt->c_player->y, 
-                    pt->c_player->AIM_angle
-                );
-
-                pt->PUCK_freeze = true;
-
-                Mix_PlayChannel(-1, pt->mix_chunks[S_MEDIUM], 0);
-            }
-            else if (p->swing_timer > 20)
-            {
-                p->swing_timer = 0;
-                p->vel = p->gvel;
-                p->pvel = MIN_SHOOT_VELOCITY;
-                p->state = PLR_SKATE_NP;
-            }
-        break;
-        case PLR_SWING:
-            if (++p->swing_timer > 10)
-            {
-                p->swing_timer = 0;
-                p->vel = p->gvel;
-                p->pvel = MIN_SHOOT_VELOCITY;
-                p->state = PLR_SKATE_NP;
-            }
-        break;
-        case PLR_SPRINT:
-
-        break;
-        case PLR_BLOCK:
-            if ((p->vel -= 0.05f) < 0) p->vel = 0;
-
-            if (++p->block_timer > 60)
-            {
-                p->bounce = false;
-                p->state = PLR_SKATE_NP;
-                p->block_timer = 0;
-                p->vel = STANDARD_VELOCITY;
-
-                p->r.w = 20;
-                p->r.h = 20;
-            }
-        break;
-        default: break;
-    }
-
-    float rx = AIM_RADIUS * SDL_cos(p->AIM_angle), 
-          ry = AIM_RADIUS * SDL_sin(p->AIM_angle);
-
-    // need to look over this 
-    if (pt->camera.x + p->crosshair.r.x - p->x < 0)
-    {
-        if (pt->camera.x + p->crosshair.r.x - p->x < rx) 
-            p->crosshair.r.x = p->x - pt->camera.x + rx;
-    }
-    else if (pt->camera.x + p->crosshair.r.x - p->x > 0)
-    {
-        if (pt->camera.x + p->crosshair.r.x - p->x > rx)
-            p->crosshair.r.x = p->x - pt->camera.x + rx;
-    }
-    //
-    if (pt->camera.y + p->crosshair.r.y - p->y < 0)
-    {
-        if (pt->camera.y + p->crosshair.r.y - p->y < ry) 
-            p->crosshair.r.y = p->y - pt->camera.y + ry;
-    }
-    else if (pt->camera.y + p->crosshair.r.y - p->y > 0)
-    {
-        if (pt->camera.y + p->crosshair.r.y - p->y > ry)
-            p->crosshair.r.y = p->y - pt->camera.y + ry;
-    }
-    //
-
-    if (p->JOY_vel)
-    {
-        float   cos = SDL_cos(p->INPUT_angle) * p->vel * p->JOY_vel,
-                sin = SDL_sin(p->INPUT_angle) * p->vel * p->JOY_vel;
-
-        if (p->xvel > cos)
-        {
-            p->xvel -= 0.2f;
-            if (p->xvel < cos) p->xvel = cos;
-        }
-        else if (p->xvel < cos)
-        {
-            p->xvel += 0.2;
-            if (p->xvel > cos) p->xvel = cos;
-        }
-
-        if (p->yvel > sin)
-        {
-            p->yvel -= 0.2f;
-            if (p->yvel < sin) p->yvel = sin;
-        }
-        else if (p->yvel < sin)
-        {
-            p->yvel += 0.2f;
-            if (p->yvel > sin) p->yvel = sin;
-        }
-    }
-    else 
-    {
-        if (p->xvel > 0)
-        {
-            p->xvel -= 0.05f;
-            if (p->xvel < 0) p->xvel = 0;
-        }
-        else if (p->xvel < 0)
-        {
-            p->xvel += 0.05f;
-            if (p->xvel > 0) p->xvel = 0;
-        }
-        
-        if (p->yvel > 0)
-        {
-            p->yvel -= 0.05f;
-            if (p->yvel < 0) p->yvel = 0;
-        }
-        else if (p->yvel < 0)
-        {
-            p->yvel += 0.05f;
-            if (p->yvel > 0) p->yvel = 0;
-        }
-    }
-
-    if (p->state == PLR_BLOCK)
-    {
-        switch (p->facing)
-        {
-            case FACING_DOWN:
-                p->r.x = p->x - 8;
-                p->r.y = p->y;
-            break;
-            case FACING_UP:
-                p->r.x = p->x - 8;
-                p->r.y = p->y - 10;
-            break;
-            case FACING_RIGHT:
-                p->r.x = p->x - 10;
-                p->r.y = p->y + 5;
-            break;
-            case FACING_LEFT:
-                p->r.x = p->x - 20;
-                p->r.y = p->y + 5;
-            break;
-        }
-    }
-    else 
-    {
-        p->r.x = p->x - 10;
-        p->r.y = p->y;
-    }
-
-    if (p->xvel)
-    {
-        bool move_ok = true;
-        float x = p->x + p->xvel;
-        SDL_Rect c = {x - 10, p->r.y, p->r.w, p->r.h};
-
-        for (unsigned char i = 0; i < 2; i++)
-        {
-            if (checkCollision(c, pt->goal_r[i])) 
-            {
-                move_ok = false;
-                break;
-            }
-        }
-        
-        if (!checkPlayerPosition(
-            (int)x >> pt->level.t_bit_size, 
-            (int)p->y >> pt->level.t_bit_size, 
-            pt->level.collision, 
-            pt->level.t_map_h)
-        )
-        {
-            if (!(x < 0 || x > pt->level.r.w) && move_ok) p->x = x;
-            else p->xvel = 0;
-        }
-        else p->xvel = 0;
-    }
-
-    if (p->yvel)
-    {
-        bool move_ok = true;
-        float y = p->y + p->yvel;
-        SDL_Rect c = {p->r.x, y - 10, p->r.w, p->r.h};
-
-        for (unsigned char i = 0; i < 2; i++)
-        {
-            if (checkCollision(c, pt->goal_r[i])) 
-            {
-                move_ok = false;
-                break;
-            }
-        }
-
-        if (!checkPlayerPosition(
-            (int)p->x >> pt->level.t_bit_size, 
-            (int)y >> pt->level.t_bit_size, 
-            pt->level.collision, 
-            pt->level.t_map_h)
-        )
-        {
-            if (!(y < 0 || y > pt->level.r.h) && move_ok) p->y = y;
-            else p->yvel = 0;
-        } 
-        else p->yvel = 0;  
-    }
-
-    p->AIM_radx = 10 * SDL_cos(p->AIM_angle);
-    p->AIM_rady = 10 * SDL_sin(p->AIM_angle);
-
-    p->club_r.x = p->x - 8 + p->AIM_radx;
-    p->club_r.y = p->y - 8 + p->AIM_rady;
-
-    p->AIM_deg = (p->AIM_angle * 180) / AIM_PI;
-
-    if (p->AIM_deg < 0) p->AIM_deg += 360;
-
-    if (p->AIM_deg > AIM_RIGHT || p->AIM_deg < AIM_DOWN)
-    {
-        p->facing = FACING_RIGHT; // right
-        if (p->JOY_use && p->JOY_vel) 
-            p->input_q[0] = KEY_RIGHT;
-    }
-    else if (p->AIM_deg > AIM_DOWN && p->AIM_deg < AIM_LEFT)
-    {
-        p->facing = FACING_DOWN; // down
-        if (p->JOY_use && p->JOY_vel) 
-            p->input_q[0] = KEY_DOWN;
-    }
-    else if (p->AIM_deg > AIM_LEFT && p->AIM_deg < AIM_UP)
-    {
-        p->facing = FACING_LEFT; // left
-        if (p->JOY_use && p->JOY_vel) 
-            p->input_q[0] = KEY_LEFT;
-    }
-    else if (p->AIM_deg > AIM_UP && p->AIM_deg < AIM_RIGHT)
-    {
-        p->facing = FACING_UP; // up
-        if (p->JOY_use && p->JOY_vel) 
-            p->input_q[0] = KEY_UP;
-    }
-}
-
-void updatePlayerInputs(P *p)
+void updateKeyInputs(P *p)
 {
     switch (*p->dir)
     {
@@ -3341,10 +2765,27 @@ void updatePlayerInputs(P *p)
                 p->AIM_angle = INPUT_DOWN;
         break;
         default:
-            if (p->JOY_vel)
-                p->AIM_angle = p->INPUT_angle;
+            if (p->JOY_vel) p->AIM_angle = p->INPUT_angle;
         break;
     }
+}
+void updateJoyInputs(P *p)
+{
+    if (p->JOY_ydir || p->JOY_xdir)
+        p->INPUT_angle = SDL_atan2(p->JOY_ydir, p->JOY_xdir);
+
+    if (p->AIM_ydir || p->AIM_xdir) 
+        p->AIM_angle = SDL_atan2(p->AIM_ydir, p->AIM_xdir);
+    else 
+    {
+        p->AIM_angle = p->INPUT_angle;
+    }
+}
+
+void updatePlayerInputs(P *p)
+{
+    if (p->JOY_use) updateJoyInputs(p);
+    else updateKeyInputs(p);
 }
 
 void updatePlayerX(P *p, L level)
@@ -3448,47 +2889,95 @@ void updatePuck(P_TEST *pt, P players[])
     if (pt->puck.xvel)
     {
         float px = pt->puck.x + pt->puck.xvel;
+        bool check = false;
 
-        if (checkPlayerPosition(
-            (int)px >> pt->level.t_bit_size, 
-            (int)pt->puck.y >> pt->level.t_bit_size, 
-            pt->level.collision, pt->level.t_map_h)
-        )
+        if (pt->goalie[0].state == GK_NORMAL)
         {
-            pt->puck.xvel = -pt->puck.xvel;
-            pt->puck.fvelx += 0.3f;
-            pt->puck.fvely += 0.02f;
+            if (checkPuckCollision(px, pt->puck.y, pt->goalie[0].r))
+            {
+                pt->puck.xvel = -pt->puck.xvel;
+                pt->puck.fvelx += 0.5f;
+                pt->puck.fvely += 0.01f;
+            }
         }
-        else if (px < 0 || px > pt->level.r.w) 
+        if (pt->goalie[1].state == GK_NORMAL && !check)
         {
-            pt->puck.xvel = -pt->puck.xvel;
-            pt->puck.fvelx += 0.3f;
-            pt->puck.fvely += 0.02f;
+            if (checkPuckCollision(px, pt->puck.y, pt->goalie[1].r))
+            {
+                pt->puck.xvel = -pt->puck.xvel;
+                pt->puck.fvelx += 0.5f;
+                pt->puck.fvely += 0.01f;
+            }
         }
-        else pt->puck.x = px;
+
+        if (!check)
+        {
+            if (checkPlayerPosition(
+                (int)px >> pt->level.t_bit_size, 
+                (int)pt->puck.y >> pt->level.t_bit_size, 
+                pt->level.collision, pt->level.t_map_h)
+            )
+            {
+                pt->puck.xvel = -pt->puck.xvel;
+                pt->puck.fvelx += 0.5f;
+                pt->puck.fvely += 0.01f;
+            }
+            else if (px < 0 || px > pt->level.r.w) 
+            {
+                pt->puck.xvel = -pt->puck.xvel;
+                pt->puck.fvelx += 0.5f;
+                pt->puck.fvely += 0.01f;
+            }
+            else pt->puck.x = px;
+        }
     }
 
     if (pt->puck.yvel)
     {
         float py = pt->puck.y + pt->puck.yvel;
+        bool check = false;
 
-        if (checkPlayerPosition(
-            (int)pt->puck.x >> pt->level.t_bit_size, 
-            (int)py >> pt->level.t_bit_size, 
-            pt->level.collision, pt->level.t_map_h)
-        )
+        if (pt->goalie[0].state == GK_NORMAL)
         {
-            pt->puck.yvel = -pt->puck.yvel;
-            pt->puck.fvelx += 0.02f;
-            pt->puck.fvely += 0.3f;
+            if (checkPuckCollision(pt->puck.x, py, pt->goalie[0].r))
+            {
+                pt->puck.yvel = -pt->puck.yvel;
+                pt->puck.fvelx += 0.01f;
+                pt->puck.fvely += 0.5f;
+                check = true;
+            }
         }
-        else if (py < 0 || py > pt->level.r.h) 
+        if (pt->goalie[1].state == GK_NORMAL && !check)
         {
-            pt->puck.yvel = -pt->puck.yvel;
-            pt->puck.fvelx += 0.02f;
-            pt->puck.fvely += 0.3f;
+            if (checkPuckCollision(pt->puck.x, py, pt->goalie[1].r))
+            {
+                pt->puck.yvel = -pt->puck.yvel;
+                pt->puck.fvelx += 0.01f;
+                pt->puck.fvely += 0.5f;
+                check = true;
+            }
         }
-        else pt->puck.y = py;
+
+        if (!check)
+        {
+            if (checkPlayerPosition(
+                (int)pt->puck.x >> pt->level.t_bit_size, 
+                (int)py >> pt->level.t_bit_size, 
+                pt->level.collision, pt->level.t_map_h)
+            )
+            {
+                pt->puck.yvel = -pt->puck.yvel;
+                pt->puck.fvelx += 0.01f;
+                pt->puck.fvely += 0.5f;
+            }
+            else if (py < 0 || py > pt->level.r.h) 
+            {
+                pt->puck.yvel = -pt->puck.yvel;
+                pt->puck.fvelx += 0.01f;
+                pt->puck.fvely += 0.5f;
+            }
+            else pt->puck.y = py;
+        }
     }
 
     if (!pt->puck.xvel && !pt->puck.yvel)
@@ -3529,33 +3018,6 @@ void updateGoalKeepers(P_TEST *pt, P players[], bool grab)
                         {
                             pt->goalie[g].state = GK_CLEAR_GOAL;
                             break;
-                        }
-                    }
-                    else if (pt->puck.xvel || pt->puck.yvel)
-                    {
-                        if (checkCollision(pt->goalie[g].r, pt->puck.r))
-                        {
-                            // check which side actually touched
-                            int side = checkGoalieCollision(pt->goalie[g].r, pt->puck.r);
-                            
-                            switch (side)
-                            {
-                                default: break;
-                                case 1: // top
-                                case 2: // bottom
-                                    printf("PUCK: collide with gk: %d on side %d\n", g+1, side);
-                                    pt->puck.state = P_STATE_HIT;
-                                    pt->puck.yvel = -pt->puck.yvel;
-                                    pt->puck.fvely += 0.3f;
-                                break;
-                                case 3: // left
-                                case 4: // right
-                                    printf("PUCK: collide with gk: %d on side %d\n", g+1, side);
-                                    pt->puck.state = P_STATE_HIT;
-                                    pt->puck.xvel = -pt->puck.xvel;
-                                    pt->puck.fvelx += 0.3f;
-                                break;
-                            }
                         }
                     }
 
@@ -3717,194 +3179,6 @@ void updateNetGoalKeepers(P_TEST *pt, bool grab)
         }
         pt->goalie[g].r.x = pt->goalie[g].x - 10;
         pt->goalie[g].r.y = pt->goalie[g].y - 10;
-    }
-}
-
-void updateLocalGame(P_TEST *pt, P players[])
-{
-    switch (pt->p_state)
-    {
-        case P_DROP:
-            updateGameDrop(pt, players);
-        break;
-        case P_PLAY:
-            updateGamePlay(pt, players);
-        break;
-        case P_GOAL:
-            updateGameGoal(pt, players);
-        break;
-    }
-}
-
-void updateHostGame(P_TEST *pt, P plrs[])
-{
-    updatePlayer(&plrs[0], pt);
-    animatePlayer(&plrs[0]);
-
-    if (!plrs[pt->network.numplayers - 1].id)
-    {
-        if (pt->network.players_net[pt->network.numplayers - 1].id)
-        {
-            plrs[pt->network.numplayers - 1].id = (
-                pt->network.players_net[pt->network.numplayers - 1].id);
-
-            plrs[pt->network.numplayers - 1].spawned = true;
-
-            printf("PLAYER: id %d\n", plrs[pt->network.numplayers - 1].id);
-        }
-    }
-
-    for (unsigned char i = 1; i < MAX_GAME_USERS; i++)
-    {
-        if (plrs[i].spawned)
-        {
-            for (unsigned char j = 1; j < MAX_NET_USERS; j++)
-            {
-                if (plrs[i].id == pt->network.players_net[j].id)
-                {
-                    plrs[i].x = pt->network.players_net[j].x;
-                    plrs[i].y = pt->network.players_net[j].y;
-                    break;
-                }
-            }
-
-            updatePlayer(&plrs[i], pt);
-
-            switch (plrs[i].state)
-            {
-                case PLR_SKATE_NP:
-                    if (pt->puck.state == P_STATE_NORMAL)
-                    {
-                        bool grab = false;
-
-                        for (int p = 0; p < MAX_GAME_USERS; p++) 
-                        {
-                            if (plrs[p].state == PLR_SKATE_WP) 
-                            {
-                                grab = true; 
-                                break;
-                            }
-                            else if (pt->goalie[p].grab)
-                            {
-                                grab = true; 
-                                break;
-                            }
-                        }
-
-                        if (!grab)
-                        {
-                            if (checkCollision(plrs[i].r, pt->puck.r))
-                            {
-                                pt->puck.xvel = 0;
-                                pt->puck.yvel = 0;
-                                pt->puck.fvelx = 0.01f;
-                                pt->puck.fvely = 0.01f;
-                                pt->puck.x = plrs[i].club_r.x + (plrs[i].club_r.w >> 1);
-                                pt->puck.y = plrs[i].club_r.y + (plrs[i].club_r.h >> 1);
-
-                                plrs[i].pvel = MIN_SHOOT_VELOCITY;
-                                plrs[i].state = PLR_SKATE_WP;
-
-                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                            }
-                        }
-                    }
-                break;
-                case PLR_SKATE_WP:
-                break;
-                case PLR_SWING:
-                    // check if another player has the puck
-                    for (int p = 0; p < MAX_GAME_USERS; p++)
-                    {
-                        if (&plrs[i] != &plrs[p])
-                        {
-                            if (plrs[p].state == PLR_SKATE_WP
-                            && checkCollision(plrs[i].club_r, plrs[p].club_r))
-                            {
-                                // puck goes wild
-                                pt->puck.state = P_STATE_HIT;
-                                pt->puck.xvel = SDL_cos(plrs[i].AIM_angle);
-                                pt->puck.yvel = SDL_sin(plrs[i].AIM_angle);
-
-                                pt->PUCK_freeze = true;
-
-                                plrs[p].state = PLR_SKATE_NP;
-
-                                Mix_PlayChannel(-1, pt->mix_chunks[S_LOW], 0);
-                                break;
-                            }
-                        }
-                    }
-                break;
-                default: break;
-            }
-            animatePlayer(&plrs[i]);
-        }
-    }
-
-    if (!pt->PUCK_freeze)
-    {
-        SDL_Rect *r = &pt->puck.r;
-        bool grab = false;
-        unsigned char i = 0;
-
-        for (; i < 2; i++)
-        {
-            if (pt->goalie[i].grab)
-            {
-                r = &pt->goalie[i].r;
-                grab = true;
-                break;
-            }
-        }
-
-        for (i = 0; i < pt->network.numplayers; i++) 
-        {
-            if (plrs[i].state == PLR_SKATE_WP) 
-            {
-                r = &plrs[i].r;
-                grab = true;
-                break;
-            }
-        }
-
-        updatePuck(pt, plrs);
-        updateGoalKeepers(pt, plrs, grab);
-
-        for (i = 0; i < 2; i++)
-        {
-            if (checkGoal(pt->puck.r, pt->goal_r[i]))
-                pt->p_state = P_GOAL;
-        }
-
-        pt->rx = r->x;
-        pt->ry = r->y;
-    }
-}
-
-void updateClientGame(P_TEST *pt, P plrs[])
-{
-    updatePlayer(pt->c_player, pt);
-    animatePlayer(pt->c_player);
-
-    for (unsigned char i = 0; i < MAX_GAME_USERS; i++)
-    {
-        if (plrs[i].spawned)
-        {
-            for (unsigned char j = 0; j < pt->network.numplayers; j++)
-            {
-                if ((plrs[i].id == pt->network.players_net[j].id) 
-                && (pt->network.players_net[j].id != pt->network.localplayer->id))
-                {
-                    plrs[i].x = pt->network.players_net[j].x;
-                    plrs[i].y = pt->network.players_net[j].y;
-
-                    updatePlayer(&plrs[i], pt);
-                    animatePlayer(&plrs[i]);
-                    break;
-                }
-            }
-        }
     }
 }
 
@@ -4112,8 +3386,10 @@ void updateNetHostGame(P_TEST *pt, P plrs[])
                 {
                     if (plrs[i].spawned)
                     {
-                        resetPlayer(&plrs[i], pt->level.r.w >> 1, (pt->level.r.h >> 1) + 40);
-                        plrs[i].spawned = true;
+                        resetPlayer(
+                            &plrs[i], 
+                            pt->level.r.w >> 1, 
+                            (pt->level.r.h >> 1) + 40);
                     }
                 }
 
@@ -4603,6 +3879,23 @@ void renderPlayTiles(SDL_Renderer *renderer, P_TEST pt)
     }
 }
 
+void renderMenuButton(SDL_Renderer *r, SDL_Rect *btn, bool select)
+{
+    SDL_SetRenderDrawColor(r, 0xff, 0xff, 0xff, 0xff);
+    SDL_RenderFillRect(r, btn);
+
+    if (select)
+    {
+        SDL_SetRenderDrawColor(r, 0xff, 0xff, 0x00, 0xff);
+        SDL_RenderDrawRect(r, btn);
+    }
+    else 
+    {
+        SDL_SetRenderDrawColor(r, 0x00, 0x00, 0x00, 0xff);
+        SDL_RenderDrawRect(r, btn);
+    }
+}
+
 void setupPlay(P_TEST *pt, P *player)
 {
     pt->players = player;
@@ -4639,11 +3932,17 @@ void setupPlay(P_TEST *pt, P *player)
 
 void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep)
 {
+    pt->quit = false;
+
     pt->is_net = false;
     pt->state_change = false;
     pt->playing = false;
+    pt->menu_hold = false;
 
+    pt->JOY_select = 0;
+    pt->SCORE_timer = 0;
     pt->STATE_timer = 0;
+    pt->STATE_cntdwn = 3;
 
     pt->PUCK_freeze = false;
     pt->PUCK_freeze_timer = 0;
@@ -4654,32 +3953,13 @@ void setupGame(P_TEST *pt, SDL_Rect *gr, SDL_Rect *gkr, P_G *gkeep)
     pt->input_field.str_pointer = 0;
     pt->input_field.str_len = 0;
 
-    /*
-    int y = 0;
-    for (int i = 0; i < 25; i++)
-    {
-        pt->gunClips[i].w = 17;
-        pt->gunClips[i].h = 19;
-        pt->gunClips[i].x = ((i % 4) << 4) + 1;
-        pt->gunClips[i].y = (y << 4) + 2;
-
-        if ((i % 4) == 3) y++;
-    }
-
-    play_test.bullet_hits.index = 0;
-
-    for (int i = 0; i < 30; i++)
-    {
-        play_test.bullet_hits.a[i].used = false;
-        play_test.bullet_hits.a[i].x = 0;
-        play_test.bullet_hits.a[i].y = 0;
-    }
-    */
-
     pt->score.score1 = 0;
     pt->score.score2 = 0;
-    //pt->score.score1_string;
-    //pt->score.score2_string;
+
+    n_itoa(pt->score.score1, pt->score.score1_string);
+    n_itoa(pt->score.score2, pt->score.score2_string);
+
+    n_itoa(pt->STATE_cntdwn, pt->state_timer_string);
 
     pt->goal_r = gr;
     pt->gk_r = gkr;
@@ -4793,6 +4073,7 @@ void resetPlay(P_TEST *pt, P plrs[], bool id)
         if (id)
         {
             pt->players[i].id = 0;
+            pt->players[i].ctrl_id = JOY_ID_NULL;
             pt->players[i].spawned = false;
         }
     }
@@ -4879,89 +4160,10 @@ void resetScores(P_SCORE *scores)
     scores->score2 = 0;
 }
 
-void movePlayer(P *p, SDL_Rect camera)
+void resetGoalkeeper(P_G *g, int x)
 {
-    if (p->JOY_use)
-    {
-        if (p->JOY_xdir == 0 && p->JOY_ydir == 0)
-        {
-            p->JOY_vel = 0;
-            p->input_q[0] = 0;
-        }
-        else 
-        {
-            p->INPUT_angle = SDL_atan2(p->JOY_ydir, p->JOY_xdir);
-        }
-
-        if (p->AIM_xdir || p->AIM_ydir)
-        {
-            p->AIM_angle = SDL_atan2(p->AIM_yvel, p->AIM_xvel);
-
-            p->crosshair.r.x = p->x - camera.x + (AIM_RADIUS * SDL_cos(p->AIM_angle));
-            p->crosshair.r.y = p->y - camera.y + (AIM_RADIUS * SDL_sin(p->AIM_angle));
-        }
-        else 
-        {
-            p->crosshair.r.x = p->x - camera.x;
-            p->crosshair.r.y = p->y - camera.y;
-            p->crosshair.show = false;
-            p->m_move = false;
-        }
-    }
-    else 
-    {
-        switch (*p->dir)
-        {
-            case KEY_LEFT:
-                if (p->input_q[1] == KEY_UP) 
-                    p->INPUT_angle = I_UP_LEFT;
-                else if (p->input_q[1] == KEY_DOWN) 
-                    p->INPUT_angle = I_DOWN_LEFT;
-                else 
-                    p->INPUT_angle = INPUT_LEFT;
-
-                p->JOY_vel = 1;
-            break;
-            case KEY_RIGHT:
-                if (p->input_q[1] == KEY_UP) 
-                    p->INPUT_angle = I_UP_RIGHT;
-                else if (p->input_q[1] == KEY_DOWN) 
-                    p->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_RIGHT;
-
-                p->JOY_vel = 1;
-            break;
-            case KEY_UP:
-                if (p->input_q[1] == KEY_LEFT) 
-                    p->INPUT_angle = I_UP_LEFT;
-                else if (p->input_q[1] == KEY_RIGHT) 
-                    p->INPUT_angle = I_UP_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_UP;
-
-                p->JOY_vel = 1;
-            break;
-            case KEY_DOWN:
-                if (p->input_q[1] == KEY_LEFT) 
-                    p->INPUT_angle = I_DOWN_LEFT;
-                else if (p->input_q[1] == KEY_RIGHT) 
-                    p->INPUT_angle = I_DOWN_RIGHT;
-                else 
-                    p->INPUT_angle = INPUT_DOWN;
-
-                p->JOY_vel = 1;
-            break;
-            default:
-                p->JOY_vel = 0;
-            break;
-        }
-        
-        if (p->m_move)
-        {
-            p->AIM_angle = (SDL_atan2(
-                camera.y + p->crosshair.r.y - p->y, 
-                camera.x + p->crosshair.r.x - p->x));
-        }
-    }
+    g->x = x;
+    g->y = 112;
+    g->s_timer = 0;
+    g->state = GK_NORMAL;
 }
